@@ -33,7 +33,6 @@ public class BatchImportUnityPackages : EditorWindow {
         scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
 
         for(int i = 0; i < packagePaths.Length; i++) {
-            packageToggles[i] = true;
             packageToggles[i] = EditorGUILayout.ToggleLeft(Path.GetFileName(packagePaths[i]), packageToggles[i]);
         }
 
@@ -48,6 +47,7 @@ public class BatchImportUnityPackages : EditorWindow {
     private void FindPackages() {
         packagePaths = Directory.GetFiles(rootFolderPath, "*.unitypackage", SearchOption.AllDirectories);
         packageToggles = new bool[packagePaths.Length];
+        for (int i = 0; i < packageToggles.Length; i++) packageToggles[i] = true;
     }
 
     private void ImportSelectedPackages() {
