@@ -1,8 +1,8 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 using UnityEditor;
 
@@ -14,6 +14,7 @@ public class AvatarDataList {
         public string avatarName;
         public string filePath;
         public string thumbnailPath;
+        public List<string> childAvatarIdList;
     }
     [Serializable]
     public class modifiedAvatarInfo {
@@ -22,9 +23,8 @@ public class AvatarDataList {
         public string filePath;
         public string thumbnailPath;
         public string description;
-        public List<string> tags;
         public int baseAvatarId;
-        public List<int> relationAssetsId;
+        public List<int> parentAvatarIdList;
     }
 
     public List<baseAvatarInfo> baseAvatarList = new List<baseAvatarInfo>();
@@ -40,11 +40,14 @@ public class VMM : MonoBehaviour {
 }
 
 public class VAMHEditorWindow : EditorWindow {
+
+    private string rootPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "/VAMF/";
+
     private AvatarDataList avatarData;
-    private bool showDetailWindow = false;
     private AvatarDataList.baseAvatarInfo selectedBaseAvatar;
     private AvatarDataList.modifiedAvatarInfo selectedModifiedAvatar;
     private bool isBaseAvatar = true;
+    private bool showDetailWindow = false;
     private Dictionary<string, Texture2D> thumbnailCache = new Dictionary<string, Texture2D>();
     private Vector2 scrollPosition;
 
@@ -53,7 +56,7 @@ public class VAMHEditorWindow : EditorWindow {
     }
 
     private void LoadAvatarData() {
-        avatarData = AssetsData.LoadAvatarData();
+        avatarData = Utility.LoadAvatarData();
     }
 
     private Texture2D LoadThumbnail(string path) {
@@ -76,44 +79,21 @@ public class VAMHEditorWindow : EditorWindow {
             GUI.enabled = false;
         }
 
-        string rootPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "/VAMF/";
-
-        GUIStyle title = new GUIStyle(EditorStyles.boldLabel);
-        title.fontSize = 20;
-        title.alignment = TextAnchor.UpperCenter;
-        title.margin = new RectOffset(170, 0, 10, 10);
-
-        GUIStyle subTitle = new GUIStyle(EditorStyles.boldLabel);
-        subTitle.fontSize = 15;
-        subTitle.alignment = TextAnchor.UpperCenter;
-        subTitle.margin = new RectOffset(0, 0, 10, 10);
-
-        GUIStyle divLine = new GUIStyle();
-        divLine.normal.background = EditorGUIUtility.whiteTexture;
-        divLine.margin = new RectOffset(20, 20, 0, 0);
-        divLine.fixedHeight = 2;
-
-        GUIStyle button = new GUIStyle(EditorStyles.miniButton);
-        button.fontSize = 15;
-        button.fixedWidth = 130;
-        button.fixedHeight = 20;
-        button.margin = new RectOffset(0, 40, 10, 10);
-
         EditorGUILayout.Space(10);
         EditorGUILayout.BeginHorizontal();
-        GUILayout.Label("VRChat Avatar Modify Framework", title);
-        if (GUILayout.Button("Sync Avatar List", button)) {
+        GUILayout.Label("VRChat Avatar Modify Framework", Style.title);
+        if (GUILayout.Button("Sync Avatar List", Style.button)) {
             LoadAvatarData();
         }
         EditorGUILayout.EndHorizontal();
         
         Color oldColor = GUI.color;
         GUI.color = new Color(0.5f, 0.5f, 0.5f, 1);
-        GUILayout.Box("", divLine);
+        GUILayout.Box("", Style.divLine);
         GUI.color = oldColor;
 
         scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
-        GUILayout.Label("Base Avatar", subTitle);
+        GUILayout.Label("Base Avatar", Style.subTitle);
         int baseCount = 0;
         EditorGUILayout.BeginHorizontal();
         foreach (var baseAvatar in avatarData.baseAvatarList) {
@@ -155,7 +135,7 @@ public class VAMHEditorWindow : EditorWindow {
         EditorGUILayout.EndHorizontal();
         EditorGUILayout.Space(5);
 
-        GUILayout.Label("Modified Avatar", subTitle);
+        GUILayout.Label("Modified Avatar", Style.subTitle);
         int modifiedCount = 0;
         EditorGUILayout.BeginHorizontal();
         foreach (var modifiedAvatar in avatarData.modifiedAvatarList) {
@@ -180,8 +160,6 @@ public class VAMHEditorWindow : EditorWindow {
                 isBaseAvatar = false;
             }
             
-            EditorGUILayout.LabelField("UID: " + modifiedAvatar.uid);
-            EditorGUILayout.LabelField("File: " + modifiedAvatar.filePath);
             EditorGUILayout.EndVertical();
             modifiedCount++;
         }
@@ -202,15 +180,16 @@ public class VAMHEditorWindow : EditorWindow {
 
         if (showDetailWindow) {
             GUI.enabled = true;
-            ShowDetailWindow();
+            DetailWindow();
         }
     }
 
-    private void ShowDetailWindow() {
-        float windowWidth = 500;
-        float windowHeight = 400;
+    private void DetailWindow() {
+        float windowWidth = 800;
+        float windowHeight = 500;
         float x = (position.width - windowWidth) / 2;
         float y = (position.height - windowHeight) / 2;
+        float thumbnailSize = 250;
 
         Rect backgroundRect = new Rect(0, 0, position.width, position.height);
         EditorGUI.DrawRect(backgroundRect, new Color(0, 0, 0, 0.5f));
@@ -225,79 +204,81 @@ public class VAMHEditorWindow : EditorWindow {
         
         GUILayout.BeginArea(new Rect(x + 10, y + 10, windowWidth - 20, windowHeight - 20));
 
+        EditorGUILayout.BeginHorizontal();
+
+        EditorGUILayout.BeginVertical(GUILayout.Width(thumbnailSize));
         if (isBaseAvatar && selectedBaseAvatar != null) {
-            EditorGUILayout.LabelField("Base Avatar Details", EditorStyles.boldLabel);
-            EditorGUILayout.Space(10);
-            EditorGUILayout.LabelField("Name: " + selectedBaseAvatar.avatarName);
-            EditorGUILayout.LabelField("UID: " + selectedBaseAvatar.uid);
-            EditorGUILayout.LabelField("File Path: " + selectedBaseAvatar.filePath);
             if (!string.IsNullOrEmpty(selectedBaseAvatar.thumbnailPath)) {
-                Texture2D thumbnail = LoadThumbnail(selectedBaseAvatar.thumbnailPath);
+                Texture2D thumbnail = LoadThumbnail(rootPath + selectedBaseAvatar.thumbnailPath);
                 if (thumbnail != null) {
-                    GUILayout.Box(thumbnail, GUILayout.Width(200), GUILayout.Height(200));
+                    GUILayout.Box(thumbnail, GUILayout.Width(thumbnailSize), GUILayout.Height(thumbnailSize));
                 }
-                EditorGUILayout.LabelField("Thumbnail Path: " + selectedBaseAvatar.thumbnailPath);
             }
-        }
-        else if (!isBaseAvatar && selectedModifiedAvatar != null) {
-            EditorGUILayout.LabelField("Modified Avatar Details", EditorStyles.boldLabel);
-            EditorGUILayout.Space(10);
-            EditorGUILayout.LabelField("Name: " + selectedModifiedAvatar.avatarName);
-            EditorGUILayout.LabelField("UID: " + selectedModifiedAvatar.uid);
-            EditorGUILayout.LabelField("File Path: " + selectedModifiedAvatar.filePath);
+        } else if (!isBaseAvatar && selectedModifiedAvatar != null) {
             if (!string.IsNullOrEmpty(selectedModifiedAvatar.thumbnailPath)) {
-                Texture2D thumbnail = LoadThumbnail(selectedModifiedAvatar.thumbnailPath);
+                Texture2D thumbnail = LoadThumbnail(rootPath + selectedModifiedAvatar.thumbnailPath);
                 if (thumbnail != null) {
-                    GUILayout.Box(thumbnail, GUILayout.Width(200), GUILayout.Height(200));
+                    GUILayout.Box(thumbnail, GUILayout.Width(thumbnailSize), GUILayout.Height(thumbnailSize));
                 }
-                EditorGUILayout.LabelField("Thumbnail Path: " + selectedModifiedAvatar.thumbnailPath);
             }
-            EditorGUILayout.LabelField("Description: " + selectedModifiedAvatar.description);
-            EditorGUILayout.LabelField("Base Avatar ID: " + selectedModifiedAvatar.baseAvatarId);
+        }
+        EditorGUILayout.EndVertical();
+
+        // 情報表示部分
+        EditorGUILayout.BeginVertical(GUILayout.Width(windowWidth - thumbnailSize - 40));
+        if (isBaseAvatar && selectedBaseAvatar != null) {
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("Base Avatar Details", Style.detailTitle);
+            if (GUILayout.Button("Edit Avatar Info", Style.detailEditInfoButton)) {
+                Debug.Log("Edit Avatar Info");
+            }
+            EditorGUILayout.EndHorizontal();
             
-            EditorGUILayout.LabelField("Tags:", EditorStyles.boldLabel);
-            if (selectedModifiedAvatar.tags != null && selectedModifiedAvatar.tags.Count > 0) {
-                EditorGUI.indentLevel++;
-                foreach (var tag in selectedModifiedAvatar.tags) {
-                    EditorGUILayout.LabelField("- " + tag);
-                }
-                EditorGUI.indentLevel--;
-            }
-        }
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.LabelField("Name", Style.detailContentName);
+            EditorGUILayout.LabelField(selectedBaseAvatar.avatarName);
 
-        EditorGUILayout.Space(20);
-        if (GUILayout.Button("Close", GUILayout.Width(100))) {
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField("File Path", Style.detailContentName);
+            EditorGUILayout.LabelField(selectedBaseAvatar.filePath, EditorStyles.wordWrappedLabel);
+
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField("Thumbnail Path", Style.detailContentName);
+            EditorGUILayout.LabelField(selectedBaseAvatar.thumbnailPath, EditorStyles.wordWrappedLabel);
+
+            EditorGUILayout.EndVertical();
+        }else if (!isBaseAvatar && selectedModifiedAvatar != null) {
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("Modified Avatar Details", Style.detailTitle);
+            if (GUILayout.Button("Edit Avatar Info", Style.detailEditInfoButton)) {
+                Debug.Log("Edit Avatar Info");
+            }
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.LabelField("Name", Style.detailContentName);
+            EditorGUILayout.LabelField(selectedModifiedAvatar.avatarName);
+
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField("Description", Style.detailContentName);
+            EditorGUILayout.LabelField(selectedModifiedAvatar.description, EditorStyles.wordWrappedLabel);
+
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField("File Path", Style.detailContentName);
+            EditorGUILayout.LabelField(selectedModifiedAvatar.filePath, EditorStyles.wordWrappedLabel);
+
+            EditorGUILayout.EndVertical();
+        }
+        EditorGUILayout.EndVertical();
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.Space(5);
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("Close", Style.button)) {
             showDetailWindow = false;
+            GUI.changed = true;
+            Event.current.Use();
         }
-
+        EditorGUILayout.EndHorizontal();
         GUILayout.EndArea();
-    }
-}
-
-public class AssetsData {
-    public static AvatarDataList LoadAvatarData() {
-        string avatarListPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "/VAMF/VAMF_Avatar.json";
-        if (!File.Exists(avatarListPath)) {
-            string directoryPath = Path.GetDirectoryName(avatarListPath);
-            if (!Directory.Exists(directoryPath)) {  
-                Directory.CreateDirectory(directoryPath);
-            }
-            File.Create(avatarListPath).Close();
-            AvatarDataList initData = new AvatarDataList();
-            string initJson = JsonUtility.ToJson(initData, true);
-            File.WriteAllText(avatarListPath, initJson);
-            return initData;
-        }
-
-        string json = File.ReadAllText(avatarListPath);
-        return JsonUtility.FromJson<AvatarDataList>(json);
-    }
-
-    public static List<AvatarDataList.baseAvatarInfo> GetBaseAvatarList() {
-        return LoadAvatarData().baseAvatarList;
-    }
-    
-    public static List<AvatarDataList.modifiedAvatarInfo> GetModifiedAvatarList() {
-        return LoadAvatarData().modifiedAvatarList;
     }
 }
