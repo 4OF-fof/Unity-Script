@@ -40,11 +40,21 @@ public class VMM : MonoBehaviour {
 }
 
 public class VAMHEditorWindow : EditorWindow {
+    private AvatarDataList avatarData;
+
+    void OnEnable() {
+        LoadAvatarData();
+    }
+
+    private void LoadAvatarData() {
+        avatarData = AssetsData.LoadAvatarData();
+    }
+
     void OnGUI() {
         GUIStyle title = new GUIStyle(EditorStyles.boldLabel);
         title.fontSize = 20;
         title.alignment = TextAnchor.UpperCenter;
-        title.margin = new RectOffset(0, 0, 10, 10);
+        title.margin = new RectOffset(170, 0, 10, 10);
 
         GUIStyle subTitle = new GUIStyle(EditorStyles.boldLabel);
         subTitle.fontSize = 15;
@@ -56,8 +66,19 @@ public class VAMHEditorWindow : EditorWindow {
         divLine.margin = new RectOffset(20, 20, 0, 0);
         divLine.fixedHeight = 2;
 
+        GUIStyle button = new GUIStyle(EditorStyles.miniButton);
+        button.fontSize = 15;
+        button.fixedWidth = 130;
+        button.fixedHeight = 20;
+        button.margin = new RectOffset(0, 40, 10, 10);
+
         EditorGUILayout.Space(10);
+        EditorGUILayout.BeginHorizontal();
         GUILayout.Label("VRChat Avatar Modify Framework", title);
+        if (GUILayout.Button("Sync Avatar List", button)) {
+            LoadAvatarData();
+        }
+        EditorGUILayout.EndHorizontal();
         
         Color oldColor = GUI.color;
         GUI.color = new Color(0.5f, 0.5f, 0.5f, 1);
@@ -67,7 +88,7 @@ public class VAMHEditorWindow : EditorWindow {
         GUILayout.Label("Base Avatar", subTitle);
         int baseCount = 0;
         EditorGUILayout.BeginHorizontal();
-        foreach (var baseAvatar in AssetsData.GetBaseAvatarList()) {
+        foreach (var baseAvatar in avatarData.baseAvatarList) {
             if (baseCount > 0 && baseCount % 4 == 0) {
                 EditorGUILayout.EndHorizontal();
                 EditorGUILayout.BeginHorizontal();
@@ -98,7 +119,7 @@ public class VAMHEditorWindow : EditorWindow {
         GUILayout.Label("Modified Avatar", subTitle);
         int modifiedCount = 0;
         EditorGUILayout.BeginHorizontal();
-        foreach (var modifiedAvatar in AssetsData.GetModifiedAvatarList()) {
+        foreach (var modifiedAvatar in avatarData.modifiedAvatarList) {
             if (modifiedCount > 0 && modifiedCount % 4 == 0) {
                 EditorGUILayout.EndHorizontal();
                 EditorGUILayout.BeginHorizontal();
@@ -129,41 +150,29 @@ public class VAMHEditorWindow : EditorWindow {
 }
 
 public class AssetsData {
-
-    public static List<AvatarDataList.baseAvatarInfo> GetBaseAvatarList() {
+    public static AvatarDataList LoadAvatarData() {
         string avatarListPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "/VAMF/VAMF_Avatar.json";
         if (!File.Exists(avatarListPath)) {
-            if (!Directory.Exists(avatarListPath)) {  
-                Directory.CreateDirectory(avatarListPath);
+            string directoryPath = Path.GetDirectoryName(avatarListPath);
+            if (!Directory.Exists(directoryPath)) {  
+                Directory.CreateDirectory(directoryPath);
             }
             File.Create(avatarListPath).Close();
             AvatarDataList initData = new AvatarDataList();
             string initJson = JsonUtility.ToJson(initData, true);
             File.WriteAllText(avatarListPath, initJson);
-            return new List<AvatarDataList.baseAvatarInfo>();
+            return initData;
         }
 
         string json = File.ReadAllText(avatarListPath);
-        AvatarDataList data = JsonUtility.FromJson<AvatarDataList>(json);
-        return data.baseAvatarList;
+        return JsonUtility.FromJson<AvatarDataList>(json);
+    }
+
+    public static List<AvatarDataList.baseAvatarInfo> GetBaseAvatarList() {
+        return LoadAvatarData().baseAvatarList;
     }
     
     public static List<AvatarDataList.modifiedAvatarInfo> GetModifiedAvatarList() {
-        string avatarListPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "/VAMF/VAMF_Avatar.json";
-        if (!File.Exists(avatarListPath)) {
-            if (!Directory.Exists(avatarListPath)) {  
-                Directory.CreateDirectory(avatarListPath);
-            }
-            File.Create(avatarListPath).Close();
-            AvatarDataList initData = new AvatarDataList();
-            string initJson = JsonUtility.ToJson(initData, true);
-            File.WriteAllText(avatarListPath, initJson);
-            return new List<AvatarDataList.modifiedAvatarInfo>();
-        }
-
-        string json = File.ReadAllText(avatarListPath);
-        AvatarDataList data = JsonUtility.FromJson<AvatarDataList>(json);
-        return data.modifiedAvatarList;
+        return LoadAvatarData().modifiedAvatarList;
     }
 }
-
