@@ -267,17 +267,15 @@ public class VAMHEditorWindow : EditorWindow {
             EditorGUILayout.LabelField("File Path", Style.detailContentName);
             EditorGUILayout.LabelField(selectedModifiedAvatar.filePath, EditorStyles.wordWrappedLabel);
 
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField("Thumbnail Path", Style.detailContentName);
+            EditorGUILayout.LabelField(selectedModifiedAvatar.thumbnailPath, EditorStyles.wordWrappedLabel);
+
             EditorGUILayout.EndVertical();
         }
         EditorGUILayout.EndVertical();
         EditorGUILayout.EndHorizontal();
-        EditorGUILayout.Space(5);
         EditorGUILayout.BeginHorizontal();
-        if (GUILayout.Button("Close", Style.button)) {
-            showDetailWindow = false;
-            GUI.changed = true;
-            Event.current.Use();
-        }
         EditorGUILayout.EndHorizontal();
         GUILayout.EndArea();
     }
