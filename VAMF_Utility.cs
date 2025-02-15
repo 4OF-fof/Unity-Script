@@ -91,7 +91,8 @@ public class Utility {
                 AssetDataList.assetInfo newAsset = new AssetDataList.assetInfo {
                     uid = Guid.NewGuid().ToString(),
                     assetName = Path.GetFileNameWithoutExtension(fileName),
-                    zipPath = relativePath
+                    zipPath = relativePath,
+                    assetType = AssetType.Unregistered
                 };
 
                 if (Path.GetExtension(file).ToLower() == ".unitypackage") {

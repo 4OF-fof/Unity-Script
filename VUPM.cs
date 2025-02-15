@@ -3,6 +3,7 @@ using System.IO;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
+using System.Linq;
 
 [InitializeOnLoad]
 public class VUPM : MonoBehaviour {
@@ -23,6 +24,7 @@ public class VUPMEditorWindow : EditorWindow {
     private Dictionary<string, Texture2D> thumbnailCache = new Dictionary<string, Texture2D>();
     private bool isInitialized = false;
     private bool isLoading = false;
+    private AssetType selectedAssetType = AssetType.Unregistered;
 
     void OnEnable() {
         isInitialized = false;
@@ -84,12 +86,46 @@ public class VUPMEditorWindow : EditorWindow {
         GUILayout.Box("", Style.divLine);
         GUI.color = oldColor;
 
+        GUILayout.BeginVertical();
+        // AssetTypeタブの表示（2行）
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        
+        // 1行目: Unregistered, Avatar, Hair, Cloth
+        EditorGUILayout.BeginHorizontal();
+        AssetType[] firstRow = { AssetType.Unregistered, AssetType.Avatar, AssetType.Hair, AssetType.Cloth };
+        foreach (AssetType type in firstRow) {
+            if (GUILayout.Toggle(selectedAssetType == type, type.ToString(), EditorStyles.toolbarButton)) {
+                if (selectedAssetType != type) {
+                    selectedAssetType = type;
+                    showDetailWindow = false;
+                }
+            }
+        }
+        EditorGUILayout.EndHorizontal();
+
+        // 2行目: Accessory, Gimmick, Script, Other
+        EditorGUILayout.BeginHorizontal();
+        AssetType[] secondRow = { AssetType.Accessory, AssetType.Gimmick, AssetType.Script, AssetType.Other };
+        foreach (AssetType type in secondRow) {
+            if (GUILayout.Toggle(selectedAssetType == type, type.ToString(), EditorStyles.toolbarButton)) {
+                if (selectedAssetType != type) {
+                    selectedAssetType = type;
+                    showDetailWindow = false;
+                }
+            }
+        }
+        EditorGUILayout.EndHorizontal();
+        
+        EditorGUILayout.EndVertical();
+        GUILayout.EndVertical();
+
         using (var scrollView = new EditorGUILayout.ScrollViewScope(scrollPosition)) {
             scrollPosition = scrollView.scrollPosition;
-            EditorGUILayout.Space(10);
+            EditorGUILayout.Space(5);
             int assetCount = 0;
             using (new EditorGUILayout.HorizontalScope()) {
-                foreach (var asset in assetData.assetList) {
+                var filteredAssets = assetData.assetList.Where(asset => asset.assetType == selectedAssetType);
+                foreach (var asset in filteredAssets) {
                     if (assetCount > 0 && assetCount % 4 == 0) {
                         GUILayout.EndHorizontal();
                         GUILayout.BeginHorizontal();
@@ -184,6 +220,10 @@ public class VUPMEditorWindow : EditorWindow {
             EditorGUILayout.Space(5);
             EditorGUILayout.LabelField("Thumbnail Path", Style.detailContentName);
             EditorGUILayout.LabelField(selectedAsset.thumbnailPath, EditorStyles.wordWrappedLabel);
+
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField("Asset Type", Style.detailContentName);
+            EditorGUILayout.LabelField(selectedAsset.assetType == 0 ? AssetType.Unregistered.ToString() : selectedAsset.assetType.ToString());
 
             EditorGUILayout.Space(5);
 

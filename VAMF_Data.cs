@@ -2,6 +2,18 @@ using System;
 using System.Collections.Generic;
 
 [Serializable]
+public enum AssetType {
+    Unregistered,
+    Avatar,
+    Hair,
+    Cloth,
+    Accessory,
+    Gimmick,
+    Script,
+    Other
+}
+
+[Serializable]
 public class AssetDataList {
     [Serializable]
     public class assetInfo {
@@ -13,6 +25,7 @@ public class AssetDataList {
         public string thumbnailPath;
         public string description;
         public List<string> tags;
+        public AssetType assetType;
     }
 
     [Serializable]
