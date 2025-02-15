@@ -21,65 +21,102 @@ public class VUPMEditorWindow : EditorWindow {
     private bool showDetailWindow = false;
     private Vector2 scrollPosition;
     private Dictionary<string, Texture2D> thumbnailCache = new Dictionary<string, Texture2D>();
+    private bool isInitialized = false;
+    private bool isLoading = false;
 
     void OnEnable() {
-        Utility.LoadZipList();
-        assetData = Utility.LoadAssetData();
+        isInitialized = false;
+        isLoading = true;
+        EditorApplication.delayCall += Initialize;
+    }
+
+    private void Initialize() {
+        EditorUtility.DisplayProgressBar("Loading", "Loading asset list...", 0.5f);
+        try {
+            Utility.LoadZipList();
+            assetData = Utility.LoadAssetData();
+            isInitialized = true;
+        }
+        finally {
+            EditorUtility.ClearProgressBar();
+            isLoading = false;
+            Repaint();
+        }
     }
 
     void OnGUI() {
+        if (isLoading) {
+            EditorGUILayout.HelpBox("Loading...", MessageType.Info);
+            return;
+        }
+
+        if (!isInitialized) {
+            EditorGUILayout.HelpBox("Initializing...", MessageType.Info);
+            return;
+        }
+
         if (showDetailWindow) {
             GUI.enabled = false;
         }
 
         EditorGUILayout.Space(10);
-        EditorGUILayout.BeginHorizontal();
-        GUILayout.Label("VRChat Unity Package Manager", Style.title);
-        if (GUILayout.Button("Sync Asset List", Style.button)) {
-            Utility.LoadZipList();
-            assetData = Utility.LoadAssetData();
+        using (new EditorGUILayout.HorizontalScope()) {
+            GUILayout.Label("VRChat Unity Package Manager", Style.title);
+            if (GUILayout.Button("Sync Asset List", Style.button)) {
+                isLoading = true;
+                EditorApplication.delayCall += () => {
+                    EditorUtility.DisplayProgressBar("Syncing", "Syncing asset list...", 0.5f);
+                    try {
+                        Utility.LoadZipList();
+                        assetData = Utility.LoadAssetData();
+                    }
+                    finally {
+                        EditorUtility.ClearProgressBar();
+                        isLoading = false;
+                        Repaint();
+                    }
+                };
+            }
         }
-        EditorGUILayout.EndHorizontal();
         
         Color oldColor = GUI.color;
         GUI.color = new Color(0.5f, 0.5f, 0.5f, 1);
         GUILayout.Box("", Style.divLine);
         GUI.color = oldColor;
 
-        scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
-        EditorGUILayout.Space(10);
-        int assetCount = 0;
-        EditorGUILayout.BeginHorizontal();
-        foreach (var asset in assetData.assetList) {
-            if (assetCount > 0 && assetCount % 4 == 0) {
-                EditorGUILayout.EndHorizontal();
-                EditorGUILayout.BeginHorizontal();
-            }
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(position.width / 4 - 10));
-            
-            if (!string.IsNullOrEmpty(asset.thumbnailPath)) {
-                Texture2D thumbnail = Utility.LoadThumbnail(rootPath + asset.thumbnailPath, thumbnailCache);
-                if (thumbnail != null) {
-                    GUILayout.Box(thumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
-                }else{
-                    GUILayout.Box("", GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
+        using (var scrollView = new EditorGUILayout.ScrollViewScope(scrollPosition)) {
+            scrollPosition = scrollView.scrollPosition;
+            EditorGUILayout.Space(10);
+            int assetCount = 0;
+            using (new EditorGUILayout.HorizontalScope()) {
+                foreach (var asset in assetData.assetList) {
+                    if (assetCount > 0 && assetCount % 4 == 0) {
+                        GUILayout.EndHorizontal();
+                        GUILayout.BeginHorizontal();
+                    }
+                    using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox, GUILayout.Width(position.width / 4 - 10))) {
+                        if (!string.IsNullOrEmpty(asset.thumbnailPath)) {
+                            Texture2D thumbnail = Utility.LoadThumbnail(rootPath + asset.thumbnailPath, thumbnailCache);
+                            if (thumbnail != null) {
+                                GUILayout.Box(thumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
+                            } else {
+                                GUILayout.Box("", GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
+                            }
+                        } else {
+                            string dummyPath = "Assets/Editor/Dummy.png";
+                            Texture2D dummyThumbnail = AssetDatabase.LoadAssetAtPath<Texture2D>(dummyPath);
+                            GUILayout.Box(dummyThumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
+                        }
+                        
+                        if (GUILayout.Button(asset.assetName, GUILayout.Height(30))) {
+                            showDetailWindow = true;
+                            selectedAsset = asset;
+                        }
+                    }
+                    assetCount++;
                 }
-            }else {
-                string dummyPath = "Assets/Editor/Dummy.png";
-                Texture2D dummyThumbnail = AssetDatabase.LoadAssetAtPath<Texture2D>(dummyPath);
-                GUILayout.Box(dummyThumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
             }
-            
-            if (GUILayout.Button(asset.assetName, GUILayout.Height(30))) {
-                showDetailWindow = true;
-                selectedAsset = asset;
-            }
-            
-            EditorGUILayout.EndVertical();
-            assetCount++;
         }
-        EditorGUILayout.EndHorizontal();
-        EditorGUILayout.EndScrollView();
 
         if (showDetailWindow) {
             GUI.enabled = true;
@@ -153,8 +190,6 @@ public class VUPMEditorWindow : EditorWindow {
             EditorGUILayout.EndVertical();
         }
         EditorGUILayout.EndVertical();
-        EditorGUILayout.EndHorizontal();
-        EditorGUILayout.BeginHorizontal();
         EditorGUILayout.EndHorizontal();
         GUILayout.EndArea();
     }

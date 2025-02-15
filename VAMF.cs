@@ -34,80 +34,77 @@ public class VAMHEditorWindow : EditorWindow {
         }
 
         EditorGUILayout.Space(10);
-        EditorGUILayout.BeginHorizontal();
-        GUILayout.Label("VRChat Avatar Modify Framework", Style.title);
-        if (GUILayout.Button("Sync Avatar List", Style.button)) {
-            avatarData = Utility.LoadAvatarData();
+        using (new EditorGUILayout.HorizontalScope()) {
+            GUILayout.Label("VRChat Avatar Modify Framework", Style.title);
+            if (GUILayout.Button("Sync Avatar List", Style.button)) {
+                avatarData = Utility.LoadAvatarData();
+            }
         }
-        EditorGUILayout.EndHorizontal();
         
         Color oldColor = GUI.color;
         GUI.color = new Color(0.5f, 0.5f, 0.5f, 1);
         GUILayout.Box("", Style.divLine);
         GUI.color = oldColor;
 
-        scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
-        GUILayout.Label("Base Avatar", Style.subTitle);
-        int baseCount = 0;
-        EditorGUILayout.BeginHorizontal();
-        foreach (var baseAvatar in avatarData.baseAvatarList) {
-            if (baseCount > 0 && baseCount % 4 == 0) {
-                EditorGUILayout.EndHorizontal();
-                EditorGUILayout.BeginHorizontal();
-            }
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(position.width / 4 - 10));
-            
-            if (!string.IsNullOrEmpty(baseAvatar.thumbnailPath)) {
-                Texture2D thumbnail = Utility.LoadThumbnail(rootPath + baseAvatar.thumbnailPath, thumbnailCache);
-                if (thumbnail != null) {
-                    GUILayout.Box(thumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
-                }else{
-                    GUILayout.Box("", GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
+        using (var scrollView = new EditorGUILayout.ScrollViewScope(scrollPosition)) {
+            scrollPosition = scrollView.scrollPosition;
+            GUILayout.Label("Base Avatar", Style.subTitle);
+            int baseCount = 0;
+            using (new EditorGUILayout.HorizontalScope()) {
+                foreach (var baseAvatar in avatarData.baseAvatarList) {
+                    if (baseCount > 0 && baseCount % 4 == 0) {
+                        GUILayout.EndHorizontal();
+                        GUILayout.BeginHorizontal();
+                    }
+                    using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox, GUILayout.Width(position.width / 4 - 10))) {
+                        if (!string.IsNullOrEmpty(baseAvatar.thumbnailPath)) {
+                            Texture2D thumbnail = Utility.LoadThumbnail(rootPath + baseAvatar.thumbnailPath, thumbnailCache);
+                            if (thumbnail != null) {
+                                GUILayout.Box(thumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
+                            } else {
+                                GUILayout.Box("", GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
+                            }
+                        }
+                        
+                        if (GUILayout.Button(baseAvatar.avatarName, GUILayout.Height(30))) {
+                            showDetailWindow = true;
+                            selectedBaseAvatar = baseAvatar;
+                            isBaseAvatar = true;
+                        }
+                    }
+                    baseCount++;
                 }
             }
-            
-            if (GUILayout.Button(baseAvatar.avatarName, GUILayout.Height(30))) {
-                showDetailWindow = true;
-                selectedBaseAvatar = baseAvatar;
-                isBaseAvatar = true;
-            }
-            
-            EditorGUILayout.EndVertical();
-            baseCount++;
-        }
-        EditorGUILayout.EndHorizontal();
-        EditorGUILayout.Space(5);
+            EditorGUILayout.Space(5);
 
-        GUILayout.Label("Modified Avatar", Style.subTitle);
-        int modifiedCount = 0;
-        EditorGUILayout.BeginHorizontal();
-        foreach (var modifiedAvatar in avatarData.modifiedAvatarList) {
-            if (modifiedCount > 0 && modifiedCount % 4 == 0) {
-                EditorGUILayout.EndHorizontal();
-                EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("Modified Avatar", Style.subTitle);
+            int modifiedCount = 0;
+            using (new EditorGUILayout.HorizontalScope()) {
+                foreach (var modifiedAvatar in avatarData.modifiedAvatarList) {
+                    if (modifiedCount > 0 && modifiedCount % 4 == 0) {
+                        GUILayout.EndHorizontal();
+                        GUILayout.BeginHorizontal();
+                    }
+                    using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox, GUILayout.Width(position.width / 4 - 10))) {
+                        if (!string.IsNullOrEmpty(modifiedAvatar.thumbnailPath)) {
+                            Texture2D thumbnail = Utility.LoadThumbnail(rootPath + modifiedAvatar.thumbnailPath, thumbnailCache);
+                            if (thumbnail != null) {
+                                GUILayout.Box(thumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
+                            } else {
+                                GUILayout.Box("", GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
+                            }
+                        }
+                        
+                        if (GUILayout.Button(modifiedAvatar.avatarName, GUILayout.Height(30))) {
+                            showDetailWindow = true;
+                            selectedModifiedAvatar = modifiedAvatar;
+                            isBaseAvatar = false;
+                        }
+                    }
+                    modifiedCount++;
+                }
             }
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(position.width / 4 - 10));
-            
-            if (!string.IsNullOrEmpty(modifiedAvatar.thumbnailPath)) {
-                Texture2D thumbnail = Utility.LoadThumbnail(rootPath + modifiedAvatar.thumbnailPath, thumbnailCache);
-                if (thumbnail != null) {
-                    GUILayout.Box(thumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
-                }else{
-                    GUILayout.Box("", GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
-                }   
-            }
-            
-            if (GUILayout.Button(modifiedAvatar.avatarName, GUILayout.Height(30))) {
-                showDetailWindow = true;
-                selectedModifiedAvatar = modifiedAvatar;
-                isBaseAvatar = false;
-            }
-            
-            EditorGUILayout.EndVertical();
-            modifiedCount++;
         }
-        EditorGUILayout.EndHorizontal();
-        EditorGUILayout.EndScrollView();
 
         if (showDetailWindow) {
             GUI.enabled = true;
@@ -214,8 +211,6 @@ public class VAMHEditorWindow : EditorWindow {
             EditorGUILayout.EndVertical();
         }
         EditorGUILayout.EndVertical();
-        EditorGUILayout.EndHorizontal();
-        EditorGUILayout.BeginHorizontal();
         EditorGUILayout.EndHorizontal();
         GUILayout.EndArea();
     }
