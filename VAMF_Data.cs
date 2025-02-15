@@ -20,12 +20,26 @@ public class AssetDataList {
         public string uid;
         public string assetName;
         public string filePath;
-        public string zipPath;
+        public string sourcePath;
         public string url;
         public string thumbnailPath;
         public string description;
         public List<string> tags;
         public AssetType assetType;
+
+        public assetInfo Clone() {
+            return new assetInfo {
+                uid = this.uid,
+                assetName = this.assetName,
+                filePath = this.filePath,
+                sourcePath = this.sourcePath,
+                url = this.url,
+                thumbnailPath = this.thumbnailPath,
+                description = this.description,
+                tags = new List<string>(this.tags ?? new List<string>()),
+                assetType = this.assetType
+            };
+        }
     }
 
     [Serializable]

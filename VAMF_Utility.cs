@@ -85,13 +85,13 @@ public class Utility {
             string fileName = Path.GetFileName(file);
             string relativePath = "Assets/" + file.Replace(assetFolderPath + "\\", "").Replace("\\", "/");
 
-            bool exists = assetData.assetList.Any(asset => asset.zipPath == relativePath);
+            bool exists = assetData.assetList.Any(asset => asset.sourcePath == relativePath);
             
             if (!exists) {
                 AssetDataList.assetInfo newAsset = new AssetDataList.assetInfo {
                     uid = Guid.NewGuid().ToString(),
                     assetName = Path.GetFileNameWithoutExtension(fileName),
-                    zipPath = relativePath,
+                    sourcePath = relativePath,
                     assetType = AssetType.Unregistered
                 };
 

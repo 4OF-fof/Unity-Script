@@ -25,6 +25,8 @@ public class VUPMEditorWindow : EditorWindow {
     private bool isInitialized = false;
     private bool isLoading = false;
     private AssetType selectedAssetType = AssetType.Unregistered;
+    private bool isEditMode = false;
+    private AssetDataList.assetInfo editingAsset = null;
 
     void OnEnable() {
         isInitialized = false;
@@ -131,18 +133,16 @@ public class VUPMEditorWindow : EditorWindow {
                         GUILayout.BeginHorizontal();
                     }
                     using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox, GUILayout.Width(position.width / 4 - 10))) {
+                        Texture2D thumbnail = null;
                         if (!string.IsNullOrEmpty(asset.thumbnailPath)) {
-                            Texture2D thumbnail = Utility.LoadThumbnail(rootPath + asset.thumbnailPath, thumbnailCache);
-                            if (thumbnail != null) {
-                                GUILayout.Box(thumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
-                            } else {
-                                GUILayout.Box("", GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
-                            }
-                        } else {
-                            string dummyPath = "Assets/Editor/Dummy.png";
-                            Texture2D dummyThumbnail = AssetDatabase.LoadAssetAtPath<Texture2D>(dummyPath);
-                            GUILayout.Box(dummyThumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
+                            thumbnail = Utility.LoadThumbnail(rootPath + asset.thumbnailPath, thumbnailCache);
                         }
+                        
+                        if (thumbnail == null) {
+                            string dummyPath = "Assets/Editor/Dummy.png";
+                            thumbnail = AssetDatabase.LoadAssetAtPath<Texture2D>(dummyPath);
+                        }
+                        GUILayout.Box(thumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
                         
                         if (GUILayout.Button(asset.assetName, GUILayout.Height(30))) {
                             showDetailWindow = true;
@@ -171,6 +171,11 @@ public class VUPMEditorWindow : EditorWindow {
         EditorGUI.DrawRect(backgroundRect, new Color(0, 0, 0, 0.5f));
         
         if (Event.current.type == EventType.MouseDown && !new Rect(x, y, windowWidth, windowHeight).Contains(Event.current.mousePosition)) {
+            if (isEditMode) {
+                // 編集モードの場合は、編集をキャンセル
+                isEditMode = false;
+                editingAsset = null;
+            }
             showDetailWindow = false;
             GUI.changed = true;
             Event.current.Use();
@@ -184,16 +189,18 @@ public class VUPMEditorWindow : EditorWindow {
 
         EditorGUILayout.BeginVertical(GUILayout.Width(thumbnailSize));
         if (selectedAsset != null) {
+            GUILayout.FlexibleSpace(); // 上部に可変スペースを追加
+            Texture2D thumbnail = null;
             if (!string.IsNullOrEmpty(selectedAsset.thumbnailPath)) {
-                Texture2D thumbnail = Utility.LoadThumbnail(rootPath + selectedAsset.thumbnailPath, thumbnailCache);
-                if (thumbnail != null) {
-                    GUILayout.Box(thumbnail, GUILayout.Width(thumbnailSize), GUILayout.Height(thumbnailSize));
-                }
-            }else {
-                string dummyPath = "Assets/Editor/Dummy.png";
-                Texture2D dummyThumbnail = AssetDatabase.LoadAssetAtPath<Texture2D>(dummyPath);
-                GUILayout.Box(dummyThumbnail, GUILayout.Width(thumbnailSize), GUILayout.Height(thumbnailSize));
+                thumbnail = Utility.LoadThumbnail(rootPath + selectedAsset.thumbnailPath, thumbnailCache);
             }
+            
+            if (thumbnail == null) {
+                string dummyPath = "Assets/Editor/Dummy.png";
+                thumbnail = AssetDatabase.LoadAssetAtPath<Texture2D>(dummyPath);
+            }
+            GUILayout.Box(thumbnail, GUILayout.Width(thumbnailSize), GUILayout.Height(thumbnailSize));
+            GUILayout.FlexibleSpace(); // 下部に可変スペースを追加
         }
         EditorGUILayout.EndVertical();
 
@@ -201,8 +208,17 @@ public class VUPMEditorWindow : EditorWindow {
         if (selectedAsset != null) {
             EditorGUILayout.BeginHorizontal();
             GUILayout.Label("Asset Details", Style.detailTitle);
-            if (GUILayout.Button("Edit Asset Info", Style.detailEditInfoButton)) {
-                Debug.Log("Edit Avatar Info");
+            if (GUILayout.Button(isEditMode ? "Cancel" : "Edit Asset Info", Style.detailEditInfoButton)) {
+                isEditMode = !isEditMode;
+                if (isEditMode) {
+                    editingAsset = selectedAsset.Clone();
+                } else {
+                    editingAsset = null;
+                }
+            }
+            if (isEditMode && GUILayout.Button("Save", Style.detailEditInfoButton)) {
+                SaveAssetChanges();
+                isEditMode = false;
             }
             EditorGUILayout.EndHorizontal();
             
@@ -211,26 +227,131 @@ public class VUPMEditorWindow : EditorWindow {
             EditorGUILayout.Space(5);
 
             EditorGUILayout.LabelField("Name", Style.detailContentName);
-            EditorGUILayout.LabelField(selectedAsset.assetName);
+            if (isEditMode) {
+                editingAsset.assetName = EditorGUILayout.TextField(editingAsset.assetName);
+            } else {
+                EditorGUILayout.LabelField(selectedAsset.assetName);
+            }
 
             EditorGUILayout.Space(5);
             EditorGUILayout.LabelField("File Path", Style.detailContentName);
-            EditorGUILayout.LabelField(selectedAsset.filePath, EditorStyles.wordWrappedLabel);
+            EditorGUILayout.LabelField(selectedAsset.sourcePath, EditorStyles.wordWrappedLabel);
+
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField("URL", Style.detailContentName);
+            if (isEditMode) {
+                editingAsset.url = EditorGUILayout.TextField(editingAsset.url);
+            } else {
+                EditorGUILayout.LabelField(selectedAsset.url ?? "", EditorStyles.wordWrappedLabel);
+            }
 
             EditorGUILayout.Space(5);
             EditorGUILayout.LabelField("Thumbnail Path", Style.detailContentName);
-            EditorGUILayout.LabelField(selectedAsset.thumbnailPath, EditorStyles.wordWrappedLabel);
+            if (isEditMode) {
+                EditorGUILayout.BeginHorizontal();
+                string thumbnailPath = EditorGUILayout.TextField(editingAsset.thumbnailPath);
+                if (thumbnailPath != editingAsset.thumbnailPath) {
+                    editingAsset.thumbnailPath = thumbnailPath;
+                    Repaint();
+                }
+                if (GUILayout.Button("Select", GUILayout.Width(60))) {
+                    string absolutePath = EditorUtility.OpenFilePanel("Select Thumbnail", "", "png,jpg,jpeg");
+                    if (!string.IsNullOrEmpty(absolutePath)) {
+                        // パスの区切り文字を正規化
+                        string normalizedAbsolutePath = absolutePath.Replace("\\", "/");
+                        string normalizedRootPath = rootPath.Replace("\\", "/");
+                        
+                        // 正規化したパスで比較
+                        if (normalizedAbsolutePath.StartsWith(normalizedRootPath)) {
+                            editingAsset.thumbnailPath = normalizedAbsolutePath.Substring(normalizedRootPath.Length).TrimStart('/');
+                            Repaint();
+                        } else {
+                            EditorUtility.DisplayDialog("Invalid Path", "Please select a file within the VAMF directory.", "OK");
+                        }
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+            } else {
+                EditorGUILayout.LabelField(selectedAsset.thumbnailPath ?? "", EditorStyles.wordWrappedLabel);
+            }
+
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField("Description", Style.detailContentName);
+            if (isEditMode) {
+                editingAsset.description = EditorGUILayout.TextArea(editingAsset.description ?? "", GUILayout.Height(60));
+            } else {
+                EditorGUILayout.LabelField(selectedAsset.description ?? "", EditorStyles.wordWrappedLabel, GUILayout.Height(60));
+            }
+
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField("Tags", Style.detailContentName);
+            if (isEditMode) {
+                string tags = editingAsset.tags != null ? string.Join(",", editingAsset.tags) : "";
+                string newTags = EditorGUILayout.TextField(tags);
+                editingAsset.tags = newTags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(t => t.Trim())
+                    .Where(t => !string.IsNullOrEmpty(t))
+                    .ToList();
+            } else {
+                string tags = selectedAsset.tags != null ? string.Join(", ", selectedAsset.tags) : "";
+                EditorGUILayout.LabelField(tags, EditorStyles.wordWrappedLabel);
+            }
 
             EditorGUILayout.Space(5);
             EditorGUILayout.LabelField("Asset Type", Style.detailContentName);
-            EditorGUILayout.LabelField(selectedAsset.assetType == 0 ? AssetType.Unregistered.ToString() : selectedAsset.assetType.ToString());
+            if (isEditMode) {
+                editingAsset.assetType = (AssetType)EditorGUILayout.EnumPopup(editingAsset.assetType);
+            } else {
+                EditorGUILayout.LabelField(selectedAsset.assetType.ToString());
+            }
 
             EditorGUILayout.Space(5);
 
             EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(15);
+
+            // インポートボタンの追加（編集モード以外の時のみ表示）
+            if (!isEditMode) {
+                GUI.backgroundColor = new Color(0.3f, 0.8f, 0.3f);
+                if (GUILayout.Button("Import UnityPackage", GUILayout.Height(30))) {
+                    string packagePath = Path.GetFullPath(rootPath + selectedAsset.filePath);
+                    if (File.Exists(packagePath)) {
+                        AssetDatabase.ImportPackage(packagePath, true);
+                    } else {
+                        EditorUtility.DisplayDialog("Import Error", "UnityPackage file not found at: " + packagePath, "OK");
+                    }
+                }
+                GUI.backgroundColor = Color.white;
+            }
+
+            EditorGUILayout.Space(5);
         }
         EditorGUILayout.EndVertical();
         EditorGUILayout.EndHorizontal();
         GUILayout.EndArea();
+    }
+
+    private void SaveAssetChanges() {
+        if (editingAsset != null && selectedAsset != null) {
+            // 編集中のアセット情報を選択中のアセットに反映
+            selectedAsset.assetName = editingAsset.assetName;
+            selectedAsset.sourcePath = editingAsset.sourcePath;
+            selectedAsset.url = editingAsset.url;
+            selectedAsset.thumbnailPath = editingAsset.thumbnailPath;
+            selectedAsset.description = editingAsset.description;
+            selectedAsset.tags = editingAsset.tags;
+            selectedAsset.assetType = editingAsset.assetType;
+
+            // アセットリストを更新
+            int index = assetData.assetList.FindIndex(a => a.uid == selectedAsset.uid);
+            if (index != -1) {
+                assetData.assetList[index] = selectedAsset;
+            }
+
+            // JSONファイルに保存
+            Utility.SaveAssetData(assetData);
+            editingAsset = null;
+        }
     }
 }
