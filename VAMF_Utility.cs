@@ -5,6 +5,8 @@ using UnityEngine;
 using UnityEditor;
 using System.Linq;
 using System.IO.Compression;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 public class Utility {
     public static AssetDataList LoadAvatarData() {
@@ -252,5 +254,90 @@ public class Utility {
         string assetListPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "/VAMF/VAMF.json";
         string json = JsonUtility.ToJson(assetData, true);
         File.WriteAllText(assetListPath, json);
+    }
+
+    [Serializable]
+    private class BoothResponse {
+        public BoothData data;
+    }
+
+    [Serializable]
+    private class BoothData {
+        public BoothImage[] images;
+    }
+
+    [Serializable]
+    private class BoothImage {
+        public string original;
+    }
+
+    public static async Task GetBoothThumbnail(AssetDataList.assetInfo asset, AssetDataList assetData, string rootPath, Dictionary<string, Texture2D> thumbnailCache, bool shouldUpdateAssetData = true) {
+        try {
+            using (var client = new HttpClient()) {
+                // Get JSON data from Booth
+                string jsonUrl = asset.url + ".json";
+                string jsonResponse = await client.GetStringAsync(jsonUrl);
+
+                // Parse JSON using Unity's JsonUtility
+                var boothData = JsonUtility.FromJson<BoothResponse>("{\"data\":" + jsonResponse + "}");
+                if (boothData == null || boothData.data.images == null || boothData.data.images.Length == 0) {
+                    throw new Exception("Invalid Booth data format");
+                }
+
+                string thumbnailUrl = boothData.data.images[0].original;
+                
+                // Download thumbnail
+                byte[] imageData = await client.GetByteArrayAsync(thumbnailUrl);
+                
+                // Create Thumbnails directory if it doesn't exist
+                string thumbnailDir = Path.Combine(rootPath, "Thumbnail");
+                Directory.CreateDirectory(thumbnailDir);
+
+                // Extract Booth item ID from URL
+                string boothItemId = "unknown";
+                if (Uri.TryCreate(asset.url, UriKind.Absolute, out Uri uri)) {
+                    string[] segments = uri.Segments;
+                    boothItemId = segments[segments.Length - 1].TrimEnd('/');
+                }
+                
+                // Save thumbnail with Booth item ID
+                string fileName = $"booth_{boothItemId}.png";
+                string thumbnailPath = Path.Combine(thumbnailDir, fileName);
+                File.WriteAllBytes(thumbnailPath, imageData);
+                
+                try {
+                    // Update asset data
+                    asset.thumbnailPath = $"Thumbnail/{fileName}";
+
+                    // アセットリストの更新とJSONファイルへの保存は任意
+                    if (shouldUpdateAssetData) {
+                        int index = assetData.assetList.FindIndex(a => a.uid == asset.uid);
+                        if (index != -1) {
+                            assetData.assetList[index] = asset;
+                            SaveAssetData(assetData);
+                            Debug.Log($"Successfully saved thumbnail and updated JSON for asset: {asset.assetName} with path: {asset.thumbnailPath}");
+                        } else {
+                            throw new Exception("Asset not found in asset list");
+                        }
+                    }
+                }
+                catch (Exception saveEx) {
+                    Debug.LogError($"Failed to save asset data to JSON: {saveEx.Message}");
+                    EditorUtility.DisplayDialog("Save Error", "Thumbnail was downloaded but failed to update JSON data.", "OK");
+                    return;
+                }
+                
+                // Clear thumbnail cache to reload new image
+                if (thumbnailCache.ContainsKey(rootPath + asset.thumbnailPath)) {
+                    thumbnailCache.Remove(rootPath + asset.thumbnailPath);
+                }
+                
+                // Refresh Unity Editor
+                AssetDatabase.Refresh();
+            }
+        }
+        catch (Exception ex) {
+            EditorUtility.DisplayDialog("Error", $"Failed to get thumbnail from Booth: {ex.Message}", "OK");
+        }
     }
 }

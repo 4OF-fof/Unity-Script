@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
 using System.Linq;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 [InitializeOnLoad]
 public class VUPM : MonoBehaviour {
@@ -21,6 +23,7 @@ public class VUPMEditorWindow : EditorWindow {
     private AssetDataList.assetInfo selectedAsset;
     private bool showDetailWindow = false;
     private Vector2 scrollPosition;
+    private Vector2 descriptionScrollPosition;
     private Dictionary<string, Texture2D> thumbnailCache = new Dictionary<string, Texture2D>();
     private bool isInitialized = false;
     private bool isLoading = false;
@@ -39,12 +42,48 @@ public class VUPMEditorWindow : EditorWindow {
         try {
             Utility.LoadZipList();
             assetData = Utility.LoadAssetData();
+            CleanupMissingAssets();
             isInitialized = true;
         }
         finally {
             EditorUtility.ClearProgressBar();
             isLoading = false;
             Repaint();
+        }
+    }
+
+    private void CleanupMissingAssets() {
+        // sourcePathのファイルが存在しないアセットを削除
+        var deletedAssets = new List<AssetDataList.assetInfo>();
+        foreach (var asset in assetData.assetList) {
+            string sourcePath = Path.GetFullPath(rootPath + asset.sourcePath);
+            if (!File.Exists(sourcePath)) {
+                deletedAssets.Add(asset);
+            }
+        }
+
+        if (deletedAssets.Count > 0) {
+            int deletedFileCount = 0;
+            // まずアセットデータから削除
+            foreach (var asset in deletedAssets) {
+                if (assetData.assetList.Remove(asset)) {
+                    // .unzip以下のファイルが存在する場合は削除
+                    string filePath = Path.GetFullPath(rootPath + asset.filePath);
+                    if (filePath.Contains(".unzip") && File.Exists(filePath)) {
+                        try {
+                            File.Delete(filePath);
+                            deletedFileCount++;
+                        }
+                        catch (Exception ex) {
+                            Debug.LogError($"Failed to delete file: {filePath}, Error: {ex.Message}");
+                        }
+                    }
+                }
+            }
+
+            // 変更を保存
+            Utility.SaveAssetData(assetData);
+            Debug.Log($"Removed {deletedAssets.Count} assets from data. Deleted {deletedFileCount} .unzip files.");
         }
     }
 
@@ -73,6 +112,7 @@ public class VUPMEditorWindow : EditorWindow {
                     try {
                         Utility.LoadZipList();
                         assetData = Utility.LoadAssetData();
+                        CleanupMissingAssets();
                     }
                     finally {
                         EditorUtility.ClearProgressBar();
@@ -189,10 +229,11 @@ public class VUPMEditorWindow : EditorWindow {
 
         EditorGUILayout.BeginVertical(GUILayout.Width(thumbnailSize));
         if (selectedAsset != null) {
-            GUILayout.FlexibleSpace(); // 上部に可変スペースを追加
+            GUILayout.FlexibleSpace();
             Texture2D thumbnail = null;
-            if (!string.IsNullOrEmpty(selectedAsset.thumbnailPath)) {
-                thumbnail = Utility.LoadThumbnail(rootPath + selectedAsset.thumbnailPath, thumbnailCache);
+            var displayAsset = isEditMode ? editingAsset : selectedAsset;
+            if (!string.IsNullOrEmpty(displayAsset.thumbnailPath)) {
+                thumbnail = Utility.LoadThumbnail(rootPath + displayAsset.thumbnailPath, thumbnailCache);
             }
             
             if (thumbnail == null) {
@@ -200,7 +241,28 @@ public class VUPMEditorWindow : EditorWindow {
                 thumbnail = AssetDatabase.LoadAssetAtPath<Texture2D>(dummyPath);
             }
             GUILayout.Box(thumbnail, GUILayout.Width(thumbnailSize), GUILayout.Height(thumbnailSize));
-            GUILayout.FlexibleSpace(); // 下部に可変スペースを追加
+
+            // Add Get thumbnail from Booth button
+            if (GUILayout.Button("Get thumbnail from Booth")) {
+                var targetAsset = isEditMode ? editingAsset : selectedAsset;
+                if (!string.IsNullOrEmpty(targetAsset.url) && targetAsset.url.Contains("booth.pm")) {
+                    EditorApplication.delayCall += async () => {
+                        var tempAsset = targetAsset.Clone();
+                        // 編集モード中は一時的な変更として扱う
+                        if (isEditMode) {
+                            await Utility.GetBoothThumbnail(tempAsset, assetData, rootPath, thumbnailCache, false);
+                            editingAsset = tempAsset;
+                        } else {
+                            await Utility.GetBoothThumbnail(tempAsset, assetData, rootPath, thumbnailCache, true);
+                            selectedAsset = assetData.assetList.Find(a => a.uid == targetAsset.uid);
+                        }
+                        Repaint();
+                    };
+                } else {
+                    EditorUtility.DisplayDialog("Error", "This asset does not have a valid Booth URL.", "OK");
+                }
+            }
+            GUILayout.FlexibleSpace();
         }
         EditorGUILayout.EndVertical();
 
@@ -209,11 +271,31 @@ public class VUPMEditorWindow : EditorWindow {
             EditorGUILayout.BeginHorizontal();
             GUILayout.Label("Asset Details", Style.detailTitle);
             if (GUILayout.Button(isEditMode ? "Cancel" : "Edit Asset Info", Style.detailEditInfoButton)) {
-                isEditMode = !isEditMode;
                 if (isEditMode) {
-                    editingAsset = selectedAsset.Clone();
-                } else {
+                    // キャンセル時の処理
                     editingAsset = null;
+                    // サムネイルキャッシュをクリアして再読み込み
+                    if (!string.IsNullOrEmpty(selectedAsset.thumbnailPath)) {
+                        if (thumbnailCache.ContainsKey(rootPath + selectedAsset.thumbnailPath)) {
+                            thumbnailCache.Remove(rootPath + selectedAsset.thumbnailPath);
+                        }
+                    }
+                    // アセットリストから最新の状態を取得して更新
+                    int index = assetData.assetList.FindIndex(a => a.uid == selectedAsset.uid);
+                    if (index != -1) {
+                        selectedAsset = assetData.assetList[index].Clone();
+                    }
+                    isEditMode = false;
+                    GUI.FocusControl(null);
+                    Repaint();
+                } else {
+                    // 編集モードに入る時の処理
+                    int index = assetData.assetList.FindIndex(a => a.uid == selectedAsset.uid);
+                    if (index != -1) {
+                        selectedAsset = assetData.assetList[index].Clone();
+                    }
+                    editingAsset = selectedAsset.Clone();
+                    isEditMode = true;
                 }
             }
             if (isEditMode && GUILayout.Button("Save", Style.detailEditInfoButton)) {
@@ -262,25 +344,17 @@ public class VUPMEditorWindow : EditorWindow {
                         string normalizedRootPath = rootPath.Replace("\\", "/");
                         
                         // 正規化したパスで比較
-                        if (normalizedAbsolutePath.StartsWith(normalizedRootPath)) {
+                        if (normalizedAbsolutePath.StartsWith(normalizedRootPath + "Thumbnail")) {
                             editingAsset.thumbnailPath = normalizedAbsolutePath.Substring(normalizedRootPath.Length).TrimStart('/');
                             Repaint();
                         } else {
-                            EditorUtility.DisplayDialog("Invalid Path", "Please select a file within the VAMF directory.", "OK");
+                            EditorUtility.DisplayDialog("Invalid Path", "Please select a file within the Thumbnail directory.", "OK");
                         }
                     }
                 }
                 EditorGUILayout.EndHorizontal();
             } else {
                 EditorGUILayout.LabelField(selectedAsset.thumbnailPath ?? "", EditorStyles.wordWrappedLabel);
-            }
-
-            EditorGUILayout.Space(5);
-            EditorGUILayout.LabelField("Description", Style.detailContentName);
-            if (isEditMode) {
-                editingAsset.description = EditorGUILayout.TextArea(editingAsset.description ?? "", GUILayout.Height(60));
-            } else {
-                EditorGUILayout.LabelField(selectedAsset.description ?? "", EditorStyles.wordWrappedLabel, GUILayout.Height(60));
             }
 
             EditorGUILayout.Space(5);
@@ -303,6 +377,20 @@ public class VUPMEditorWindow : EditorWindow {
                 editingAsset.assetType = (AssetType)EditorGUILayout.EnumPopup(editingAsset.assetType);
             } else {
                 EditorGUILayout.LabelField(selectedAsset.assetType.ToString());
+            }
+
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField("Description", Style.detailContentName);
+            if (isEditMode) {
+                editingAsset.description = EditorGUILayout.TextArea(editingAsset.description ?? "", GUILayout.Height(60));
+            } else {
+                using (var descriptionScrollView = new EditorGUILayout.ScrollViewScope(
+                    descriptionScrollPosition,
+                    GUILayout.Height(60)))
+                {
+                    descriptionScrollPosition = descriptionScrollView.scrollPosition;
+                    EditorGUILayout.LabelField(selectedAsset.description ?? "", EditorStyles.wordWrappedLabel);
+                }
             }
 
             EditorGUILayout.Space(5);
