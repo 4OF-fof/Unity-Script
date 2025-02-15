@@ -24,7 +24,7 @@ public class AssetDataList {
         public string url;
         public string thumbnailPath;
         public string description;
-        public List<string> tags;
+        public List<string> dependencies;  // 依存アセットのUIDリスト
         public AssetType assetType;
 
         public assetInfo Clone() {
@@ -36,7 +36,7 @@ public class AssetDataList {
                 url = this.url,
                 thumbnailPath = this.thumbnailPath,
                 description = this.description,
-                tags = new List<string>(this.tags ?? new List<string>()),
+                dependencies = new List<string>(this.dependencies ?? new List<string>()),
                 assetType = this.assetType
             };
         }

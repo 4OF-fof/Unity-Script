@@ -358,20 +358,84 @@ public class VUPMEditorWindow : EditorWindow {
             }
 
             EditorGUILayout.Space(5);
-            EditorGUILayout.LabelField("Tags", Style.detailContentName);
-            if (isEditMode) {
-                string tags = editingAsset.tags != null ? string.Join(",", editingAsset.tags) : "";
-                string newTags = EditorGUILayout.TextField(tags);
-                editingAsset.tags = newTags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(t => t.Trim())
-                    .Where(t => !string.IsNullOrEmpty(t))
-                    .ToList();
-            } else {
-                string tags = selectedAsset.tags != null ? string.Join(", ", selectedAsset.tags) : "";
-                EditorGUILayout.LabelField(tags, EditorStyles.wordWrappedLabel);
+            // 編集モードの場合は常に表示、それ以外の場合は依存関係が存在する場合のみ表示
+            if (isEditMode || (selectedAsset.dependencies != null && selectedAsset.dependencies.Count > 0)) {
+                EditorGUILayout.LabelField("Dependencies", Style.detailContentName);
+                if (isEditMode) {
+                    // 既存の依存関係を表示
+                    if (editingAsset.dependencies != null) {
+                        List<string> dependenciesToRemove = new List<string>();
+                        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                        foreach (string depUid in editingAsset.dependencies) {
+                            var depAsset = assetData.assetList.Find(a => a.uid == depUid);
+                            if (depAsset != null) {
+                                EditorGUILayout.BeginHorizontal();
+                                EditorGUILayout.LabelField(depAsset.assetName);
+                                if (GUILayout.Button("×", GUILayout.Width(20))) {
+                                    dependenciesToRemove.Add(depUid);
+                                }
+                                EditorGUILayout.EndHorizontal();
+                            }
+                        }
+                        EditorGUILayout.EndVertical();
+                        
+                        // 削除マークされた依存関係を削除
+                        foreach (string uidToRemove in dependenciesToRemove) {
+                            editingAsset.dependencies.Remove(uidToRemove);
+                        }
+                    }
+
+                    // 新しい依存関係を追加するドロップダウン
+                    EditorGUILayout.BeginHorizontal();
+                    EditorGUILayout.LabelField("Add Dependency", GUILayout.Width(100));
+                    if (GUILayout.Button("Select Asset")) {
+                        GenericMenu menu = new GenericMenu();
+                        foreach (var asset in assetData.assetList) {
+                            // 自分自身は除外
+                            if (asset.uid != editingAsset.uid) {
+                                bool isAlreadyDependent = editingAsset.dependencies != null && 
+                                                        editingAsset.dependencies.Contains(asset.uid);
+                                // すでに依存関係にある場合はグレーアウト
+                                if (isAlreadyDependent) {
+                                    menu.AddDisabledItem(new GUIContent(asset.assetName));
+                                } else {
+                                    menu.AddItem(new GUIContent(asset.assetName), false, () => {
+                                        if (editingAsset.dependencies == null) {
+                                            editingAsset.dependencies = new List<string>();
+                                        }
+                                        editingAsset.dependencies.Add(asset.uid);
+                                        Repaint();
+                                    });
+                                }
+                            }
+                        }
+                        menu.ShowAsContext();
+                    }
+                    EditorGUILayout.EndHorizontal();
+                } else {
+                    EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                    foreach (string depUid in selectedAsset.dependencies) {
+                        var depAsset = assetData.assetList.Find(a => a.uid == depUid);
+                        if (depAsset != null) {
+                            EditorGUILayout.BeginHorizontal();
+                            // リンクスタイルを適用
+                            var linkStyle = new GUIStyle(EditorStyles.label);
+                            linkStyle.normal.textColor = new Color(0.4f, 0.7f, 1.0f);
+                            if (GUILayout.Button(depAsset.assetName, linkStyle)) {
+                                // 現在の詳細ウィンドウを閉じて新しいアセットの詳細を表示
+                                selectedAsset = depAsset;
+                                isEditMode = false;
+                                editingAsset = null;
+                                Repaint();
+                            }
+                            EditorGUILayout.EndHorizontal();
+                        }
+                    }
+                    EditorGUILayout.EndVertical();
+                }
+                EditorGUILayout.Space(5);
             }
 
-            EditorGUILayout.Space(5);
             EditorGUILayout.LabelField("Asset Type", Style.detailContentName);
             if (isEditMode) {
                 editingAsset.assetType = (AssetType)EditorGUILayout.EnumPopup(editingAsset.assetType);
@@ -428,7 +492,7 @@ public class VUPMEditorWindow : EditorWindow {
             selectedAsset.url = editingAsset.url;
             selectedAsset.thumbnailPath = editingAsset.thumbnailPath;
             selectedAsset.description = editingAsset.description;
-            selectedAsset.tags = editingAsset.tags;
+            selectedAsset.dependencies = editingAsset.dependencies;
             selectedAsset.assetType = editingAsset.assetType;
 
             // アセットリストを更新
