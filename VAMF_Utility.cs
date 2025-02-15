@@ -84,7 +84,6 @@ public class Utility {
         foreach (string file in files) {
             string fileName = Path.GetFileName(file);
             string relativePath = "Assets/" + file.Replace(assetFolderPath + "\\", "").Replace("\\", "/");
-            List<string> unityPackageFiles;
 
             bool exists = assetData.assetList.Any(asset => asset.zipPath == relativePath);
             

@@ -46,12 +46,12 @@ public class VUPMEditorWindow : EditorWindow {
 
     void OnGUI() {
         if (isLoading) {
-            EditorGUILayout.HelpBox("Loading...", MessageType.Info);
+            GUILayout.Label("Loading...", EditorStyles.boldLabel);
             return;
         }
 
         if (!isInitialized) {
-            EditorGUILayout.HelpBox("Initializing...", MessageType.Info);
+            GUILayout.Label("Initializing...", EditorStyles.boldLabel);
             return;
         }
 

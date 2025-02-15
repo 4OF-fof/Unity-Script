@@ -2,10 +2,6 @@ using System;
 using System.Collections.Generic;
 
 [Serializable]
-public class AvatarDataList {
-}
-
-[Serializable]
 public class AssetDataList {
     [Serializable]
     public class assetInfo {
