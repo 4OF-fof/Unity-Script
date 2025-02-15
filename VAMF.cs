@@ -1,35 +1,8 @@
 using System;
 using System.IO;
-using System.Linq;
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
-
-[Serializable]
-public class AvatarDataList {
-    [Serializable]
-    public class baseAvatarInfo {
-        public string uid;
-        public string avatarName;
-        public string filePath;
-        public string thumbnailPath;
-        public List<string> childAvatarIdList;
-    }
-    [Serializable]
-    public class modifiedAvatarInfo {
-        public string uid;
-        public string avatarName;
-        public string filePath;
-        public string thumbnailPath;
-        public string description;
-        public int baseAvatarId;
-        public List<int> parentAvatarIdList;
-    }
-
-    public List<baseAvatarInfo> baseAvatarList = new List<baseAvatarInfo>();
-    public List<modifiedAvatarInfo> modifiedAvatarList = new List<modifiedAvatarInfo>();
-}
 
 [InitializeOnLoad]
 public class VMM : MonoBehaviour {
@@ -43,35 +16,16 @@ public class VAMHEditorWindow : EditorWindow {
 
     private string rootPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "/VAMF/";
 
-    private AvatarDataList avatarData;
-    private AvatarDataList.baseAvatarInfo selectedBaseAvatar;
-    private AvatarDataList.modifiedAvatarInfo selectedModifiedAvatar;
+    private AssetDataList avatarData;
+    private AssetDataList.baseAvatarInfo selectedBaseAvatar;
+    private AssetDataList.modifiedAvatarInfo selectedModifiedAvatar;
     private bool isBaseAvatar = true;
     private bool showDetailWindow = false;
     private Dictionary<string, Texture2D> thumbnailCache = new Dictionary<string, Texture2D>();
     private Vector2 scrollPosition;
 
     void OnEnable() {
-        LoadAvatarData();
-    }
-
-    private void LoadAvatarData() {
         avatarData = Utility.LoadAvatarData();
-    }
-
-    private Texture2D LoadThumbnail(string path) {
-        if (string.IsNullOrEmpty(path)) return null;
-        if (thumbnailCache.ContainsKey(path)) return thumbnailCache[path];
-
-        if (File.Exists(path)) {
-            byte[] fileData = File.ReadAllBytes(path);
-            Texture2D texture = new Texture2D(2, 2);
-            if (texture.LoadImage(fileData)) {
-                thumbnailCache[path] = texture;
-                return texture;
-            }
-        }
-        return null;
     }
 
     void OnGUI() {
@@ -83,7 +37,7 @@ public class VAMHEditorWindow : EditorWindow {
         EditorGUILayout.BeginHorizontal();
         GUILayout.Label("VRChat Avatar Modify Framework", Style.title);
         if (GUILayout.Button("Sync Avatar List", Style.button)) {
-            LoadAvatarData();
+            avatarData = Utility.LoadAvatarData();
         }
         EditorGUILayout.EndHorizontal();
         
@@ -104,8 +58,7 @@ public class VAMHEditorWindow : EditorWindow {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(position.width / 4 - 10));
             
             if (!string.IsNullOrEmpty(baseAvatar.thumbnailPath)) {
-
-                Texture2D thumbnail = LoadThumbnail(rootPath + baseAvatar.thumbnailPath);
+                Texture2D thumbnail = Utility.LoadThumbnail(rootPath + baseAvatar.thumbnailPath, thumbnailCache);
                 if (thumbnail != null) {
                     GUILayout.Box(thumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
                 }else{
@@ -122,16 +75,6 @@ public class VAMHEditorWindow : EditorWindow {
             EditorGUILayout.EndVertical();
             baseCount++;
         }
-        if (baseCount > 0 && baseCount % 4 == 0) {
-            EditorGUILayout.EndHorizontal();
-            EditorGUILayout.BeginHorizontal();
-        }
-        
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(position.width / 4 - 10));
-        if (GUILayout.Button("Create Base Avatar", GUILayout.Height(50))) {
-            Debug.Log("Create Base Avatar");
-        }
-        EditorGUILayout.EndVertical();
         EditorGUILayout.EndHorizontal();
         EditorGUILayout.Space(5);
 
@@ -146,7 +89,7 @@ public class VAMHEditorWindow : EditorWindow {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(position.width / 4 - 10));
             
             if (!string.IsNullOrEmpty(modifiedAvatar.thumbnailPath)) {
-                Texture2D thumbnail = LoadThumbnail(rootPath + modifiedAvatar.thumbnailPath);
+                Texture2D thumbnail = Utility.LoadThumbnail(rootPath + modifiedAvatar.thumbnailPath, thumbnailCache);
                 if (thumbnail != null) {
                     GUILayout.Box(thumbnail, GUILayout.Width(position.width / 4 - 20), GUILayout.Height(position.width / 4 - 20));
                 }else{
@@ -163,19 +106,7 @@ public class VAMHEditorWindow : EditorWindow {
             EditorGUILayout.EndVertical();
             modifiedCount++;
         }
-        if (modifiedCount > 0 && modifiedCount % 4 == 0) {
-            EditorGUILayout.EndHorizontal();
-            EditorGUILayout.BeginHorizontal();
-        }
-        
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(position.width / 4 - 10));
-        if (GUILayout.Button("Create Modified Avatar", GUILayout.Height(50))) {
-            Debug.Log("Create Modified Avatar");
-        }
-        EditorGUILayout.EndVertical();
         EditorGUILayout.EndHorizontal();
-        EditorGUILayout.Space(5);
-        
         EditorGUILayout.EndScrollView();
 
         if (showDetailWindow) {
@@ -209,14 +140,14 @@ public class VAMHEditorWindow : EditorWindow {
         EditorGUILayout.BeginVertical(GUILayout.Width(thumbnailSize));
         if (isBaseAvatar && selectedBaseAvatar != null) {
             if (!string.IsNullOrEmpty(selectedBaseAvatar.thumbnailPath)) {
-                Texture2D thumbnail = LoadThumbnail(rootPath + selectedBaseAvatar.thumbnailPath);
+                Texture2D thumbnail = Utility.LoadThumbnail(rootPath + selectedBaseAvatar.thumbnailPath, thumbnailCache);
                 if (thumbnail != null) {
                     GUILayout.Box(thumbnail, GUILayout.Width(thumbnailSize), GUILayout.Height(thumbnailSize));
                 }
             }
         } else if (!isBaseAvatar && selectedModifiedAvatar != null) {
             if (!string.IsNullOrEmpty(selectedModifiedAvatar.thumbnailPath)) {
-                Texture2D thumbnail = LoadThumbnail(rootPath + selectedModifiedAvatar.thumbnailPath);
+                Texture2D thumbnail = Utility.LoadThumbnail(rootPath + selectedModifiedAvatar.thumbnailPath, thumbnailCache);
                 if (thumbnail != null) {
                     GUILayout.Box(thumbnail, GUILayout.Width(thumbnailSize), GUILayout.Height(thumbnailSize));
                 }
@@ -224,7 +155,6 @@ public class VAMHEditorWindow : EditorWindow {
         }
         EditorGUILayout.EndVertical();
 
-        // 情報表示部分
         EditorGUILayout.BeginVertical(GUILayout.Width(windowWidth - thumbnailSize - 40));
         if (isBaseAvatar && selectedBaseAvatar != null) {
             EditorGUILayout.BeginHorizontal();
@@ -235,6 +165,9 @@ public class VAMHEditorWindow : EditorWindow {
             EditorGUILayout.EndHorizontal();
             
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+            EditorGUILayout.Space(5);
+
             EditorGUILayout.LabelField("Name", Style.detailContentName);
             EditorGUILayout.LabelField(selectedBaseAvatar.avatarName);
 
@@ -246,6 +179,8 @@ public class VAMHEditorWindow : EditorWindow {
             EditorGUILayout.LabelField("Thumbnail Path", Style.detailContentName);
             EditorGUILayout.LabelField(selectedBaseAvatar.thumbnailPath, EditorStyles.wordWrappedLabel);
 
+            EditorGUILayout.Space(5);
+
             EditorGUILayout.EndVertical();
         }else if (!isBaseAvatar && selectedModifiedAvatar != null) {
             EditorGUILayout.BeginHorizontal();
@@ -256,6 +191,9 @@ public class VAMHEditorWindow : EditorWindow {
             EditorGUILayout.EndHorizontal();
             
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+            EditorGUILayout.Space(5);
+
             EditorGUILayout.LabelField("Name", Style.detailContentName);
             EditorGUILayout.LabelField(selectedModifiedAvatar.avatarName);
 
@@ -270,6 +208,8 @@ public class VAMHEditorWindow : EditorWindow {
             EditorGUILayout.Space(5);
             EditorGUILayout.LabelField("Thumbnail Path", Style.detailContentName);
             EditorGUILayout.LabelField(selectedModifiedAvatar.thumbnailPath, EditorStyles.wordWrappedLabel);
+
+            EditorGUILayout.Space(5);
 
             EditorGUILayout.EndVertical();
         }
