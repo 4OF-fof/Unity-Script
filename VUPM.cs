@@ -23,7 +23,9 @@ public class VUPMEditorWindow : EditorWindow {
     private AssetDataList.assetInfo selectedAsset;
     private Stack<AssetDataList.assetInfo> assetHistory = new Stack<AssetDataList.assetInfo>();
     private bool showDetailWindow = false;
-    private Vector2 scrollPosition;
+    private Vector2 mainScrollPosition; // アセット一覧用のスクロール位置
+    private Vector2 detailScrollPosition; // 詳細ウィンドウ用のスクロール位置
+    private Vector2 storedMainScrollPosition; // 詳細ウィンドウ表示時のメインスクロール位置を保存
     private Vector2 descriptionScrollPosition;
     private Dictionary<string, Texture2D> thumbnailCache = new Dictionary<string, Texture2D>();
     private bool isInitialized = false;
@@ -31,6 +33,101 @@ public class VUPMEditorWindow : EditorWindow {
     private AssetType selectedAssetType = AssetType.Unregistered;
     private bool isEditMode = false;
     private AssetDataList.assetInfo editingAsset = null;
+    private Vector2 dependencyPopupScrollPosition;
+    private bool showDependencyPopup = false;
+    private Rect dependencyPopupRect;
+
+    private class DependencyPopupWindow : EditorWindow {
+        private VUPMEditorWindow parentWindow;
+        private Vector2 scrollPosition;
+        private AssetDataList assetData;
+        private AssetDataList.assetInfo editingAsset;
+        private GUIStyle hoverButtonStyle;
+        private static DependencyPopupWindow currentWindow;
+
+        public static void ShowWindow(VUPMEditorWindow parent, AssetDataList assetData, AssetDataList.assetInfo editingAsset, Vector2 position) {
+            if (currentWindow != null) {
+                currentWindow.Close();
+            }
+            var window = CreateInstance<DependencyPopupWindow>();
+            window.titleContent = new GUIContent("Select Dependency");
+            window.position = new Rect(position.x, position.y, 250, 300);
+            window.parentWindow = parent;
+            window.assetData = assetData;
+            window.editingAsset = editingAsset;
+            window.ShowPopup();
+            currentWindow = window;
+        }
+
+        public static void CloseCurrentWindow() {
+            if (currentWindow != null) {
+                currentWindow.Close();
+                currentWindow = null;
+            }
+        }
+
+        void OnGUI() {
+            if (hoverButtonStyle == null) {
+                hoverButtonStyle = new GUIStyle(EditorStyles.label);
+                hoverButtonStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f);
+                hoverButtonStyle.hover.textColor = new Color(0.4f, 0.7f, 1.0f);
+                hoverButtonStyle.active.textColor = new Color(0.3f, 0.6f, 0.9f);
+                hoverButtonStyle.padding = new RectOffset(5, 5, 2, 2);
+                hoverButtonStyle.margin = new RectOffset(0, 0, 1, 1);
+            }
+
+            // ウィンドウ外クリックの判定
+            var windowRect = new Rect(Vector2.zero, position.size);
+            if (Event.current.type == EventType.MouseDown && !windowRect.Contains(Event.current.mousePosition)) {
+                currentWindow = null;
+                Close();
+                return;
+            }
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
+
+            foreach (var asset in assetData.assetList) {
+                if (asset.uid != editingAsset.uid) {
+                    bool isAlreadyDependent = editingAsset.dependencies != null && 
+                                            editingAsset.dependencies.Contains(asset.uid);
+                    
+                    if (isAlreadyDependent) {
+                        GUI.enabled = false;
+                        GUILayout.Label(asset.assetName, hoverButtonStyle);
+                        GUI.enabled = true;
+                    } else {
+                        Rect buttonRect = GUILayoutUtility.GetRect(GUIContent.none, hoverButtonStyle, GUILayout.ExpandWidth(true));
+                        bool isHover = buttonRect.Contains(Event.current.mousePosition);
+                        
+                        if (isHover) {
+                            EditorGUI.DrawRect(buttonRect, new Color(0.4f, 0.4f, 0.4f, 0.2f));
+                        }
+
+                        if (GUI.Button(buttonRect, asset.assetName, hoverButtonStyle)) {
+                            if (editingAsset.dependencies == null) {
+                                editingAsset.dependencies = new List<string>();
+                            }
+                            editingAsset.dependencies.Add(asset.uid);
+                            parentWindow.Repaint();
+                            Close();
+                        }
+
+                        if (isHover) {
+                            Repaint();
+                        }
+                    }
+                }
+            }
+
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+        }
+
+        void OnDestroy() {
+            currentWindow = null;
+        }
+    }
 
     void OnEnable() {
         isInitialized = false;
@@ -162,8 +259,13 @@ public class VUPMEditorWindow : EditorWindow {
         EditorGUILayout.EndVertical();
         GUILayout.EndVertical();
 
-        using (var scrollView = new EditorGUILayout.ScrollViewScope(scrollPosition)) {
-            scrollPosition = scrollView.scrollPosition;
+        using (var scrollView = new EditorGUILayout.ScrollViewScope(showDetailWindow ? storedMainScrollPosition : mainScrollPosition)) {
+            if (!showDetailWindow) {
+                mainScrollPosition = scrollView.scrollPosition;
+            } else if (Event.current.type == EventType.Layout) {
+                // 詳細ウィンドウ表示時は現在のスクロール位置を保存
+                storedMainScrollPosition = mainScrollPosition;
+            }
             EditorGUILayout.Space(5);
             int assetCount = 0;
             using (new EditorGUILayout.HorizontalScope()) {
@@ -211,11 +313,29 @@ public class VUPMEditorWindow : EditorWindow {
         Rect backgroundRect = new Rect(0, 0, position.width, position.height);
         EditorGUI.DrawRect(backgroundRect, new Color(0, 0, 0, 0.5f));
         
-        if (Event.current.type == EventType.MouseDown && !new Rect(x, y, windowWidth, windowHeight).Contains(Event.current.mousePosition)) {
+        Rect detailWindowRect = new Rect(x, y, windowWidth, windowHeight);
+        
+        // 詳細ウィンドウ内のクリックを検出
+        if (Event.current.type == EventType.MouseDown) {
+            if (detailWindowRect.Contains(Event.current.mousePosition)) {
+                // Select Assetボタンの領域を除外
+                if (isEditMode && editingAsset != null) {
+                    Vector2 localMousePos = Event.current.mousePosition - new Vector2(x + 10, y + 10);
+                    float selectAssetButtonY = 300; // おおよその位置
+                    Rect selectAssetButtonRect = new Rect(thumbnailSize, selectAssetButtonY, 100, 20);
+                    if (!selectAssetButtonRect.Contains(localMousePos)) {
+                        DependencyPopupWindow.CloseCurrentWindow();
+                    }
+                }
+            }
+        }
+        
+        if (Event.current.type == EventType.MouseDown && !detailWindowRect.Contains(Event.current.mousePosition)) {
             if (isEditMode) {
                 // 編集モードの場合は、編集をキャンセル
                 isEditMode = false;
                 editingAsset = null;
+                DependencyPopupWindow.CloseCurrentWindow();
             }
             showDetailWindow = false;
             assetHistory.Clear();
@@ -223,7 +343,7 @@ public class VUPMEditorWindow : EditorWindow {
             Event.current.Use();
         }
         
-        EditorGUI.DrawRect(new Rect(x, y, windowWidth, windowHeight), new Color(0.2f, 0.2f, 0.2f, 0.95f));
+        EditorGUI.DrawRect(detailWindowRect, new Color(0.2f, 0.2f, 0.2f, 0.95f));
         
         GUILayout.BeginArea(new Rect(x + 10, y + 10, windowWidth - 20, windowHeight - 20));
 
@@ -299,6 +419,7 @@ public class VUPMEditorWindow : EditorWindow {
                         selectedAsset = assetData.assetList[index].Clone();
                     }
                     isEditMode = false;
+                    DependencyPopupWindow.CloseCurrentWindow();
                     GUI.FocusControl(null);
                     Repaint();
                 } else {
@@ -314,166 +435,145 @@ public class VUPMEditorWindow : EditorWindow {
             if (isEditMode && GUILayout.Button("Save", Style.detailEditInfoButton)) {
                 SaveAssetChanges();
                 isEditMode = false;
+                DependencyPopupWindow.CloseCurrentWindow();
             }
             EditorGUILayout.EndHorizontal();
-            
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
-            EditorGUILayout.Space(5);
+            // プロパティ表示部分をスクロール可能な領域に
+            using (var scrollView = new EditorGUILayout.ScrollViewScope(detailScrollPosition, GUILayout.Height(windowHeight - 140))) {
+                detailScrollPosition = scrollView.scrollPosition;
+                
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
-            EditorGUILayout.LabelField("Name", Style.detailContentName);
-            if (isEditMode) {
-                editingAsset.assetName = EditorGUILayout.TextField(editingAsset.assetName);
-            } else {
-                EditorGUILayout.LabelField(selectedAsset.assetName);
-            }
+                EditorGUILayout.Space(5);
 
-            EditorGUILayout.Space(5);
-            EditorGUILayout.LabelField("File Path", Style.detailContentName);
-            EditorGUILayout.LabelField(selectedAsset.sourcePath, EditorStyles.wordWrappedLabel);
-
-            EditorGUILayout.Space(5);
-            EditorGUILayout.LabelField("URL", Style.detailContentName);
-            if (isEditMode) {
-                editingAsset.url = EditorGUILayout.TextField(editingAsset.url);
-            } else {
-                EditorGUILayout.LabelField(selectedAsset.url ?? "", EditorStyles.wordWrappedLabel);
-            }
-
-            EditorGUILayout.Space(5);
-            EditorGUILayout.LabelField("Thumbnail Path", Style.detailContentName);
-            if (isEditMode) {
-                EditorGUILayout.BeginHorizontal();
-                string thumbnailPath = EditorGUILayout.TextField(editingAsset.thumbnailPath);
-                if (thumbnailPath != editingAsset.thumbnailPath) {
-                    editingAsset.thumbnailPath = thumbnailPath;
-                    Repaint();
+                EditorGUILayout.LabelField("Name", Style.detailContentName);
+                if (isEditMode) {
+                    editingAsset.assetName = EditorGUILayout.TextField(editingAsset.assetName);
+                } else {
+                    EditorGUILayout.LabelField(selectedAsset.assetName);
                 }
-                if (GUILayout.Button("Select", GUILayout.Width(60))) {
-                    string absolutePath = EditorUtility.OpenFilePanel("Select Thumbnail", "", "png,jpg,jpeg");
-                    if (!string.IsNullOrEmpty(absolutePath)) {
-                        // パスの区切り文字を正規化
-                        string normalizedAbsolutePath = absolutePath.Replace("\\", "/");
-                        string normalizedRootPath = rootPath.Replace("\\", "/");
-                        
-                        // 正規化したパスで比較
-                        if (normalizedAbsolutePath.StartsWith(normalizedRootPath + "Thumbnail")) {
-                            editingAsset.thumbnailPath = normalizedAbsolutePath.Substring(normalizedRootPath.Length).TrimStart('/');
-                            Repaint();
-                        } else {
-                            EditorUtility.DisplayDialog("Invalid Path", "Please select a file within the Thumbnail directory.", "OK");
+
+                EditorGUILayout.Space(5);
+                EditorGUILayout.LabelField("File Path", Style.detailContentName);
+                EditorGUILayout.LabelField(selectedAsset.sourcePath, EditorStyles.wordWrappedLabel);
+
+                EditorGUILayout.Space(5);
+                EditorGUILayout.LabelField("URL", Style.detailContentName);
+                if (isEditMode) {
+                    editingAsset.url = EditorGUILayout.TextField(editingAsset.url);
+                } else {
+                    EditorGUILayout.LabelField(selectedAsset.url ?? "", EditorStyles.wordWrappedLabel);
+                }
+
+                EditorGUILayout.Space(5);
+                EditorGUILayout.LabelField("Thumbnail Path", Style.detailContentName);
+                if (isEditMode) {
+                    EditorGUILayout.BeginHorizontal();
+                    string thumbnailPath = EditorGUILayout.TextField(editingAsset.thumbnailPath);
+                    if (thumbnailPath != editingAsset.thumbnailPath) {
+                        editingAsset.thumbnailPath = thumbnailPath;
+                        Repaint();
+                    }
+                    if (GUILayout.Button("Select", GUILayout.Width(60))) {
+                        string absolutePath = EditorUtility.OpenFilePanel("Select Thumbnail", "", "png,jpg,jpeg");
+                        if (!string.IsNullOrEmpty(absolutePath)) {
+                            string normalizedAbsolutePath = absolutePath.Replace("\\", "/");
+                            string normalizedRootPath = rootPath.Replace("\\", "/");
+                            
+                            if (normalizedAbsolutePath.StartsWith(normalizedRootPath + "Thumbnail")) {
+                                editingAsset.thumbnailPath = normalizedAbsolutePath.Substring(normalizedRootPath.Length).TrimStart('/');
+                                Repaint();
+                            } else {
+                                EditorUtility.DisplayDialog("Invalid Path", "Please select a file within the Thumbnail directory.", "OK");
+                            }
                         }
                     }
+                    EditorGUILayout.EndHorizontal();
+                } else {
+                    EditorGUILayout.LabelField(selectedAsset.thumbnailPath ?? "", EditorStyles.wordWrappedLabel);
                 }
-                EditorGUILayout.EndHorizontal();
-            } else {
-                EditorGUILayout.LabelField(selectedAsset.thumbnailPath ?? "", EditorStyles.wordWrappedLabel);
-            }
 
-            EditorGUILayout.Space(5);
-            // 編集モードの場合は常に表示、それ以外の場合は依存関係が存在する場合のみ表示
-            if (isEditMode || (selectedAsset.dependencies != null && selectedAsset.dependencies.Count > 0)) {
-                EditorGUILayout.LabelField("Dependencies", Style.detailContentName);
-                if (isEditMode) {
-                    // 既存の依存関係を表示
-                    if (editingAsset.dependencies != null) {
-                        List<string> dependenciesToRemove = new List<string>();
+                EditorGUILayout.Space(5);
+                if (isEditMode || (selectedAsset.dependencies != null && selectedAsset.dependencies.Count > 0)) {
+                    EditorGUILayout.LabelField("Dependencies", Style.detailContentName);
+                    if (isEditMode) {
+                        if (editingAsset.dependencies != null) {
+                            List<string> dependenciesToRemove = new List<string>();
+                            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                            foreach (string depUid in editingAsset.dependencies) {
+                                var depAsset = assetData.assetList.Find(a => a.uid == depUid);
+                                if (depAsset != null) {
+                                    EditorGUILayout.BeginHorizontal();
+                                    EditorGUILayout.LabelField(depAsset.assetName);
+                                    if (GUILayout.Button("×", GUILayout.Width(20))) {
+                                        dependenciesToRemove.Add(depUid);
+                                    }
+                                    EditorGUILayout.EndHorizontal();
+                                }
+                            }
+                            EditorGUILayout.EndVertical();
+                            
+                            foreach (string uidToRemove in dependenciesToRemove) {
+                                editingAsset.dependencies.Remove(uidToRemove);
+                            }
+                        }
+
+                        EditorGUILayout.BeginHorizontal();
+                        EditorGUILayout.LabelField("Add Dependency", GUILayout.Width(100));
+                        if (GUILayout.Button("Select Asset")) {
+                            Vector2 popupPosition = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                            DependencyPopupWindow.ShowWindow(this, assetData, editingAsset, popupPosition);
+                        }
+                        EditorGUILayout.EndHorizontal();
+                    } else {
                         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-                        foreach (string depUid in editingAsset.dependencies) {
+                        foreach (string depUid in selectedAsset.dependencies) {
                             var depAsset = assetData.assetList.Find(a => a.uid == depUid);
                             if (depAsset != null) {
                                 EditorGUILayout.BeginHorizontal();
-                                EditorGUILayout.LabelField(depAsset.assetName);
-                                if (GUILayout.Button("×", GUILayout.Width(20))) {
-                                    dependenciesToRemove.Add(depUid);
+                                var linkStyle = new GUIStyle(EditorStyles.label);
+                                linkStyle.normal.textColor = new Color(0.4f, 0.7f, 1.0f);
+                                if (GUILayout.Button(depAsset.assetName, linkStyle)) {
+                                    assetHistory.Push(selectedAsset);
+                                    selectedAsset = depAsset;
+                                    isEditMode = false;
+                                    editingAsset = null;
+                                    Repaint();
                                 }
                                 EditorGUILayout.EndHorizontal();
                             }
                         }
                         EditorGUILayout.EndVertical();
-                        
-                        // 削除マークされた依存関係を削除
-                        foreach (string uidToRemove in dependenciesToRemove) {
-                            editingAsset.dependencies.Remove(uidToRemove);
-                        }
                     }
+                    EditorGUILayout.Space(5);
+                }
 
-                    // 新しい依存関係を追加するドロップダウン
-                    EditorGUILayout.BeginHorizontal();
-                    EditorGUILayout.LabelField("Add Dependency", GUILayout.Width(100));
-                    if (GUILayout.Button("Select Asset")) {
-                        GenericMenu menu = new GenericMenu();
-                        foreach (var asset in assetData.assetList) {
-                            // 自分自身は除外
-                            if (asset.uid != editingAsset.uid) {
-                                bool isAlreadyDependent = editingAsset.dependencies != null && 
-                                                        editingAsset.dependencies.Contains(asset.uid);
-                                // すでに依存関係にある場合はグレーアウト
-                                if (isAlreadyDependent) {
-                                    menu.AddDisabledItem(new GUIContent(asset.assetName));
-                                } else {
-                                    menu.AddItem(new GUIContent(asset.assetName), false, () => {
-                                        if (editingAsset.dependencies == null) {
-                                            editingAsset.dependencies = new List<string>();
-                                        }
-                                        editingAsset.dependencies.Add(asset.uid);
-                                        Repaint();
-                                    });
-                                }
-                            }
-                        }
-                        menu.ShowAsContext();
-                    }
-                    EditorGUILayout.EndHorizontal();
+                EditorGUILayout.LabelField("Asset Type", Style.detailContentName);
+                if (isEditMode) {
+                    editingAsset.assetType = (AssetType)EditorGUILayout.EnumPopup(editingAsset.assetType);
                 } else {
-                    EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-                    foreach (string depUid in selectedAsset.dependencies) {
-                        var depAsset = assetData.assetList.Find(a => a.uid == depUid);
-                        if (depAsset != null) {
-                            EditorGUILayout.BeginHorizontal();
-                            // リンクスタイルを適用
-                            var linkStyle = new GUIStyle(EditorStyles.label);
-                            linkStyle.normal.textColor = new Color(0.4f, 0.7f, 1.0f);
-                            if (GUILayout.Button(depAsset.assetName, linkStyle)) {
-                                // 現在の詳細ウィンドウを閉じて新しいアセットの詳細を表示
-                                assetHistory.Push(selectedAsset);
-                                selectedAsset = depAsset;
-                                isEditMode = false;
-                                editingAsset = null;
-                                Repaint();
-                            }
-                            EditorGUILayout.EndHorizontal();
-                        }
-                    }
-                    EditorGUILayout.EndVertical();
+                    EditorGUILayout.LabelField(selectedAsset.assetType.ToString());
                 }
+
                 EditorGUILayout.Space(5);
-            }
-
-            EditorGUILayout.LabelField("Asset Type", Style.detailContentName);
-            if (isEditMode) {
-                editingAsset.assetType = (AssetType)EditorGUILayout.EnumPopup(editingAsset.assetType);
-            } else {
-                EditorGUILayout.LabelField(selectedAsset.assetType.ToString());
-            }
-
-            EditorGUILayout.Space(5);
-            EditorGUILayout.LabelField("Description", Style.detailContentName);
-            if (isEditMode) {
-                editingAsset.description = EditorGUILayout.TextArea(editingAsset.description ?? "", GUILayout.Height(60));
-            } else {
-                using (var descriptionScrollView = new EditorGUILayout.ScrollViewScope(
-                    descriptionScrollPosition,
-                    GUILayout.Height(60)))
-                {
-                    descriptionScrollPosition = descriptionScrollView.scrollPosition;
-                    EditorGUILayout.LabelField(selectedAsset.description ?? "", EditorStyles.wordWrappedLabel);
+                EditorGUILayout.LabelField("Description", Style.detailContentName);
+                if (isEditMode) {
+                    editingAsset.description = EditorGUILayout.TextArea(editingAsset.description ?? "", GUILayout.Height(60));
+                } else {
+                    using (var descriptionScrollView = new EditorGUILayout.ScrollViewScope(
+                        descriptionScrollPosition,
+                        GUILayout.Height(60)))
+                    {
+                        descriptionScrollPosition = descriptionScrollView.scrollPosition;
+                        EditorGUILayout.LabelField(selectedAsset.description ?? "", EditorStyles.wordWrappedLabel);
+                    }
                 }
+
+                EditorGUILayout.Space(5);
+
+                EditorGUILayout.EndVertical();
             }
-
-            EditorGUILayout.Space(5);
-
-            EditorGUILayout.EndVertical();
 
             EditorGUILayout.Space(15);
 
@@ -490,8 +590,6 @@ public class VUPMEditorWindow : EditorWindow {
                 }
                 GUI.backgroundColor = Color.white;
             }
-
-            EditorGUILayout.Space(5);
         }
         EditorGUILayout.EndVertical();
         EditorGUILayout.EndHorizontal();
