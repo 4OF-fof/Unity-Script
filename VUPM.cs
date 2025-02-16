@@ -21,6 +21,7 @@ public class VUPMEditorWindow : EditorWindow {
 
     private AssetDataList assetData;
     private AssetDataList.assetInfo selectedAsset;
+    private Stack<AssetDataList.assetInfo> assetHistory = new Stack<AssetDataList.assetInfo>();
     private bool showDetailWindow = false;
     private Vector2 scrollPosition;
     private Vector2 descriptionScrollPosition;
@@ -217,6 +218,7 @@ public class VUPMEditorWindow : EditorWindow {
                 editingAsset = null;
             }
             showDetailWindow = false;
+            assetHistory.Clear();
             GUI.changed = true;
             Event.current.Use();
         }
@@ -229,6 +231,17 @@ public class VUPMEditorWindow : EditorWindow {
 
         EditorGUILayout.BeginVertical(GUILayout.Width(thumbnailSize));
         if (selectedAsset != null) {
+            // Backボタンをここに移動
+            if (!isEditMode && assetHistory.Count > 0) {
+                if (GUILayout.Button("← Back", GUILayout.Width(80), GUILayout.Height(25))) {
+                    selectedAsset = assetHistory.Pop();
+                    isEditMode = false;
+                    editingAsset = null;
+                    Repaint();
+                }
+                EditorGUILayout.Space(5);
+            }
+
             GUILayout.FlexibleSpace();
             Texture2D thumbnail = null;
             var displayAsset = isEditMode ? editingAsset : selectedAsset;
@@ -423,6 +436,7 @@ public class VUPMEditorWindow : EditorWindow {
                             linkStyle.normal.textColor = new Color(0.4f, 0.7f, 1.0f);
                             if (GUILayout.Button(depAsset.assetName, linkStyle)) {
                                 // 現在の詳細ウィンドウを閉じて新しいアセットの詳細を表示
+                                assetHistory.Push(selectedAsset);
                                 selectedAsset = depAsset;
                                 isEditMode = false;
                                 editingAsset = null;
