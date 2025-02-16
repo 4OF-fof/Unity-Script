@@ -41,6 +41,7 @@ public class VUPMEditorWindow : EditorWindow {
     private Vector2 dependencyPopupScrollPosition;
     private bool showDependencyPopup = false;
     private Rect dependencyPopupRect;
+    private bool showImportDialog = true;
 
     private class DependencyPopupWindow : EditorWindow {
         private VUPMEditorWindow parentWindow;
@@ -680,14 +681,16 @@ public class VUPMEditorWindow : EditorWindow {
             EditorGUILayout.Space(15);
 
             if (!isEditMode) {
+                using (new EditorGUILayout.HorizontalScope()) {
+                    GUILayout.FlexibleSpace();
+                    showImportDialog = EditorGUILayout.ToggleLeft("Show import dialog", showImportDialog, GUILayout.Width(150));
+                    GUILayout.FlexibleSpace();
+                }
+                EditorGUILayout.Space(5);
+
                 GUI.backgroundColor = new Color(0.3f, 0.8f, 0.3f);
                 if (GUILayout.Button("Import UnityPackage", GUILayout.Height(30))) {
-                    string packagePath = Path.GetFullPath(rootPath + selectedAsset.filePath);
-                    if (File.Exists(packagePath)) {
-                        AssetDatabase.ImportPackage(packagePath, true);
-                    } else {
-                        EditorUtility.DisplayDialog("Import Error", "UnityPackage file not found at: " + packagePath, "OK");
-                    }
+                    ShowImportConfirmationDialog(selectedAsset);
                 }
                 GUI.backgroundColor = Color.white;
             }
@@ -695,6 +698,149 @@ public class VUPMEditorWindow : EditorWindow {
         EditorGUILayout.EndVertical();
         EditorGUILayout.EndHorizontal();
         GUILayout.EndArea();
+    }
+
+    private HashSet<string> processedAssets = new HashSet<string>();
+    private List<AssetDataList.assetInfo> importList = new List<AssetDataList.assetInfo>();
+    private Queue<AssetDataList.assetInfo> importQueue = new Queue<AssetDataList.assetInfo>();
+    private bool isImporting = false;
+
+    private void ShowImportConfirmationDialog(AssetDataList.assetInfo asset) {
+        importList.Clear();
+        processedAssets.Clear();
+        CollectImportAssets(asset);
+        processedAssets.Clear();
+
+        // 依存元を追跡するための辞書を作成
+        var requestedBy = new Dictionary<string, List<string>>();
+        foreach (var importAsset in importList) {
+            if (importAsset.dependencies != null) {
+                foreach (var depUid in importAsset.dependencies) {
+                    if (!requestedBy.ContainsKey(depUid)) {
+                        requestedBy[depUid] = new List<string>();
+                    }
+                    requestedBy[depUid].Add(importAsset.uid);
+                }
+            }
+        }
+
+        string message = "The following assets will be imported:\n\n";
+
+        // 選択されたアセットを最初に表示
+        var selectedAssetInfo = importList.Find(a => a.uid == asset.uid);
+        if (selectedAssetInfo != null) {
+            message += $"{selectedAssetInfo.assetName} (Selected by User)\n\n";
+        }
+
+        // 残りのアセットを表示
+        foreach (var currentAsset in importList) {
+            if (currentAsset.uid == asset.uid) continue; // 選択されたアセットはスキップ
+
+            message += currentAsset.assetName;
+            
+            if (requestedBy.ContainsKey(currentAsset.uid)) {
+                var requesters = requestedBy[currentAsset.uid]
+                    .Select(uid => assetData.assetList.Find(a => a.uid == uid))
+                    .Where(a => a != null)
+                    .Select(a => a.assetName);
+
+                if (requesters.Any()) {
+                    message += $" (Required by: {string.Join(", ", requesters)})";
+                }
+            }
+            message += "\n\n";
+        }
+
+        if (EditorUtility.DisplayDialog("Import Confirmation", message, "Import", "Cancel")) {
+            importQueue.Clear();
+            foreach (var importAsset in importList) {
+                importQueue.Enqueue(importAsset);
+            }
+            if (!isImporting) {
+                isImporting = true;
+                AssetDatabase.importPackageCompleted += OnImportPackageCompleted;
+                AssetDatabase.importPackageCancelled += OnImportPackageCancelled;
+                ImportNext();
+            }
+        }
+    }
+
+    private void OnImportPackageCompleted(string packageName) {
+        EditorApplication.delayCall += () => {
+            ImportNext();
+        };
+    }
+
+    private void OnImportPackageCancelled(string packageName) {
+        EditorUtility.ClearProgressBar();
+        EditorUtility.DisplayDialog("Import Cancelled", 
+            "The import process has been cancelled. Some assets may not have been imported properly.", "OK");
+        CleanupImport();
+    }
+
+    private void CleanupImport() {
+        isImporting = false;
+        importQueue.Clear();
+        AssetDatabase.importPackageCompleted -= OnImportPackageCompleted;
+        AssetDatabase.importPackageCancelled -= OnImportPackageCancelled;
+    }
+
+    private void ImportNext() {
+        if (importQueue.Count == 0) {
+            CleanupImport();
+            EditorUtility.ClearProgressBar();
+            EditorUtility.DisplayDialog("Import Completed", 
+                "All assets have been successfully imported.", "OK");
+            return;
+        }
+
+        var asset = importQueue.Dequeue();
+        string packagePath = Path.GetFullPath(rootPath + asset.filePath);
+
+        if (File.Exists(packagePath)) {
+            float progress = 1f - (float)importQueue.Count / importList.Count;
+            if (showImportDialog) {
+                EditorUtility.DisplayProgressBar("Importing Assets", 
+                    $"Waiting for import dialog response: {asset.assetName}...", progress);
+            } else {
+                EditorUtility.DisplayProgressBar("Importing Assets", 
+                    $"Importing {asset.assetName}...", progress);
+            }
+
+            AssetDatabase.ImportPackage(packagePath, showImportDialog);
+        } else {
+            Debug.LogError($"UnityPackage file not found at: {packagePath}");
+            ImportNext();
+        }
+    }
+
+    private void OnDisable() {
+        if (isImporting) {
+            CleanupImport();
+            EditorUtility.ClearProgressBar();
+        }
+    }
+
+    private void CollectImportAssets(AssetDataList.assetInfo asset) {
+        if (asset == null) return;
+        if (processedAssets.Contains(asset.uid)) return;
+
+        processedAssets.Add(asset.uid);
+
+        // 依存関係を先に処理
+        if (asset.dependencies != null && asset.dependencies.Count > 0) {
+            foreach (string depUid in asset.dependencies) {
+                var depAsset = assetData.assetList.Find(a => a.uid == depUid);
+                if (depAsset != null) {
+                    CollectImportAssets(depAsset);
+                }
+            }
+        }
+
+        // インポートリストに追加
+        if (File.Exists(Path.GetFullPath(rootPath + asset.filePath))) {
+            importList.Add(asset);
+        }
     }
 
     private void SaveAssetChanges() {
