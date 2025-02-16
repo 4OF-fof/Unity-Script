@@ -315,85 +315,88 @@ public class VUPMEditorWindow : EditorWindow {
             DetailWindow();
         }
 
-        BeginWindows();
-        var searchButtonRect = new Rect(position.width - 60, position.height - 60, 40, 40);
-        var searchIconContent = EditorGUIUtility.IconContent("d_Search Icon");
-        searchIconContent.tooltip = "Search & Filter";
+        // 詳細ウィンドウが表示されていない時のみ検索ボタンを表示
+        if (!showDetailWindow) {
+            BeginWindows();
+            var searchButtonRect = new Rect(position.width - 60, position.height - 60, 40, 40);
+            var searchIconContent = EditorGUIUtility.IconContent("d_Search Icon");
+            searchIconContent.tooltip = "Search & Filter";
 
-        // フィルターが適用されているかどうかをチェック
-        bool isFilterActive = !string.IsNullOrEmpty(searchName) || !string.IsNullOrEmpty(searchDescription);
+            // フィルターが適用されているかどうかをチェック
+            bool isFilterActive = !string.IsNullOrEmpty(searchName) || !string.IsNullOrEmpty(searchDescription);
 
-        // 検索ボタンのクリック判定を最優先で処理
-        if (Event.current.type == EventType.MouseDown && searchButtonRect.Contains(Event.current.mousePosition)) {
-            showFilterWindow = !showFilterWindow;
-            if (showFilterWindow) {
-                tempSearchName = searchName;
-                tempSearchDescription = searchDescription;
+            // 検索ボタンのクリック判定を最優先で処理
+            if (Event.current.type == EventType.MouseDown && searchButtonRect.Contains(Event.current.mousePosition)) {
+                showFilterWindow = !showFilterWindow;
+                if (showFilterWindow) {
+                    tempSearchName = searchName;
+                    tempSearchDescription = searchDescription;
+                }
+                Event.current.Use();
+                Repaint();
+                EndWindows();
+                return;
             }
-            Event.current.Use();
-            Repaint();
+
+            // 正方形の背景を描画
+            var bgStyle = new GUIStyle();
+            bgStyle.normal.background = EditorGUIUtility.whiteTexture;
+
+            // 通常時とホバー時の背景色を設定
+            Color normalColor = new Color(0.2f, 0.2f, 0.2f, 0.9f);
+            Color hoverColor = new Color(0.3f, 0.3f, 0.3f, 0.9f);
+            Color activeColor = new Color(0.15f, 0.15f, 0.15f, 0.9f);
+
+            // 輪郭線の色を設定
+            Color borderColor = new Color(0.4f, 0.4f, 0.4f, 1.0f);
+            if (searchButtonRect.Contains(Event.current.mousePosition)) {
+                borderColor = new Color(0.6f, 0.6f, 0.6f, 1.0f);
+            }
+
+            // マウスの状態に応じて背景色を変更
+            if (Event.current.type == EventType.MouseDown && searchButtonRect.Contains(Event.current.mousePosition)) {
+                GUI.backgroundColor = activeColor;
+            } else if (searchButtonRect.Contains(Event.current.mousePosition)) {
+                GUI.backgroundColor = hoverColor;
+            } else {
+                GUI.backgroundColor = normalColor;
+            }
+            
+            // 背景を描画
+            GUI.Box(searchButtonRect, "", bgStyle);
+            GUI.backgroundColor = Color.white;
+
+            // 輪郭線を描画
+            var borderRects = new Rect[] {
+                new Rect(searchButtonRect.x, searchButtonRect.y, searchButtonRect.width, 1),                    // 上
+                new Rect(searchButtonRect.x, searchButtonRect.y + searchButtonRect.height - 1, searchButtonRect.width, 1),  // 下
+                new Rect(searchButtonRect.x, searchButtonRect.y, 1, searchButtonRect.height),                    // 左
+                new Rect(searchButtonRect.x + searchButtonRect.width - 1, searchButtonRect.y, 1, searchButtonRect.height)   // 右
+            };
+
+            foreach (var borderRect in borderRects) {
+                EditorGUI.DrawRect(borderRect, borderColor);
+            }
+
+            // カスタムボタンスタイル
+            var roundButtonStyle = new GUIStyle(EditorStyles.iconButton);
+            roundButtonStyle.normal.background = null;
+            roundButtonStyle.hover.background = null;
+            roundButtonStyle.active.background = null;
+            roundButtonStyle.fontSize = 20;
+            roundButtonStyle.fixedWidth = 40;
+            roundButtonStyle.fixedHeight = 40;
+            roundButtonStyle.alignment = TextAnchor.MiddleCenter;
+
+            // フィルターが適用されている場合はアイコンの色を変更
+            Color originalColor = GUI.color;
+            if (isFilterActive) {
+                GUI.color = new Color(0.3f, 0.8f, 0.3f, 1.0f);
+            }
+            GUI.Button(searchButtonRect, searchIconContent, roundButtonStyle);
+            GUI.color = originalColor;
             EndWindows();
-            return;
         }
-
-        // 正方形の背景を描画
-        var bgStyle = new GUIStyle();
-        bgStyle.normal.background = EditorGUIUtility.whiteTexture;
-
-        // 通常時とホバー時の背景色を設定
-        Color normalColor = new Color(0.2f, 0.2f, 0.2f, 0.9f);
-        Color hoverColor = new Color(0.3f, 0.3f, 0.3f, 0.9f);
-        Color activeColor = new Color(0.15f, 0.15f, 0.15f, 0.9f);
-
-        // 輪郭線の色を設定
-        Color borderColor = new Color(0.4f, 0.4f, 0.4f, 1.0f);
-        if (searchButtonRect.Contains(Event.current.mousePosition)) {
-            borderColor = new Color(0.6f, 0.6f, 0.6f, 1.0f);
-        }
-
-        // マウスの状態に応じて背景色を変更
-        if (Event.current.type == EventType.MouseDown && searchButtonRect.Contains(Event.current.mousePosition)) {
-            GUI.backgroundColor = activeColor;
-        } else if (searchButtonRect.Contains(Event.current.mousePosition)) {
-            GUI.backgroundColor = hoverColor;
-        } else {
-            GUI.backgroundColor = normalColor;
-        }
-        
-        // 背景を描画
-        GUI.Box(searchButtonRect, "", bgStyle);
-        GUI.backgroundColor = Color.white;
-
-        // 輪郭線を描画
-        var borderRects = new Rect[] {
-            new Rect(searchButtonRect.x, searchButtonRect.y, searchButtonRect.width, 1),                    // 上
-            new Rect(searchButtonRect.x, searchButtonRect.y + searchButtonRect.height - 1, searchButtonRect.width, 1),  // 下
-            new Rect(searchButtonRect.x, searchButtonRect.y, 1, searchButtonRect.height),                    // 左
-            new Rect(searchButtonRect.x + searchButtonRect.width - 1, searchButtonRect.y, 1, searchButtonRect.height)   // 右
-        };
-
-        foreach (var borderRect in borderRects) {
-            EditorGUI.DrawRect(borderRect, borderColor);
-        }
-
-        // カスタムボタンスタイル
-        var roundButtonStyle = new GUIStyle(EditorStyles.iconButton);
-        roundButtonStyle.normal.background = null;
-        roundButtonStyle.hover.background = null;
-        roundButtonStyle.active.background = null;
-        roundButtonStyle.fontSize = 20;
-        roundButtonStyle.fixedWidth = 40;
-        roundButtonStyle.fixedHeight = 40;
-        roundButtonStyle.alignment = TextAnchor.MiddleCenter;
-
-        // フィルターが適用されている場合はアイコンの色を変更
-        Color originalColor = GUI.color;
-        if (isFilterActive) {
-            GUI.color = new Color(0.3f, 0.8f, 0.3f, 1.0f);
-        }
-        GUI.Button(searchButtonRect, searchIconContent, roundButtonStyle);
-        GUI.color = originalColor;
-        EndWindows();
 
         if (showFilterWindow) {
             FilterWindow();
@@ -601,24 +604,27 @@ public class VUPMEditorWindow : EditorWindow {
                 if (isEditMode || (selectedAsset.dependencies != null && selectedAsset.dependencies.Count > 0)) {
                     EditorGUILayout.LabelField("Dependencies", Style.detailContentName);
                     if (isEditMode) {
-                        if (editingAsset.dependencies != null) {
-                            List<string> dependenciesToRemove = new List<string>();
+                        if (editingAsset.dependencies != null && editingAsset.dependencies.Count > 0) {
                             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                            string depUidToRemove = null;
                             foreach (string depUid in editingAsset.dependencies) {
                                 var depAsset = assetData.assetList.Find(a => a.uid == depUid);
                                 if (depAsset != null) {
                                     EditorGUILayout.BeginHorizontal();
                                     EditorGUILayout.LabelField(depAsset.assetName);
                                     if (GUILayout.Button("×", GUILayout.Width(20))) {
-                                        dependenciesToRemove.Add(depUid);
+                                        depUidToRemove = depUid;
                                     }
                                     EditorGUILayout.EndHorizontal();
                                 }
                             }
                             EditorGUILayout.EndVertical();
-                            
-                            foreach (string uidToRemove in dependenciesToRemove) {
-                                editingAsset.dependencies.Remove(uidToRemove);
+
+                            if (depUidToRemove != null) {
+                                editingAsset.dependencies.Remove(depUidToRemove);
+                                if (editingAsset.dependencies.Count == 0) {
+                                    editingAsset.dependencies = null;
+                                }
                             }
                         }
 
