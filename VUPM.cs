@@ -38,9 +38,6 @@ public class VUPMEditorWindow : EditorWindow {
     private AssetType selectedAssetType = AssetType.Unregistered;
     private bool isEditMode = false;
     private AssetDataList.assetInfo editingAsset = null;
-    private Vector2 dependencyPopupScrollPosition;
-    private bool showDependencyPopup = false;
-    private Rect dependencyPopupRect;
     private bool showImportDialog = false;
 
     private class DependencyPopupWindow : EditorWindow {
@@ -114,6 +111,102 @@ public class VUPMEditorWindow : EditorWindow {
                                 editingAsset.dependencies = new List<string>();
                             }
                             editingAsset.dependencies.Add(asset.uid);
+                            parentWindow.Repaint();
+                            Close();
+                        }
+
+                        if (isHover) {
+                            Repaint();
+                        }
+                    }
+                }
+            }
+
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+        }
+
+        void OnDestroy() {
+            currentWindow = null;
+        }
+    }
+
+    private class OldVersionPopupWindow : EditorWindow {
+        private VUPMEditorWindow parentWindow;
+        private Vector2 scrollPosition;
+        private AssetDataList assetData;
+        private AssetDataList.assetInfo editingAsset;
+        private GUIStyle hoverButtonStyle;
+        private static OldVersionPopupWindow currentWindow;
+
+        public static void ShowWindow(VUPMEditorWindow parent, AssetDataList assetData, AssetDataList.assetInfo editingAsset, Vector2 position) {
+            if (currentWindow != null) {
+                currentWindow.Close();
+            }
+            var window = CreateInstance<OldVersionPopupWindow>();
+            window.titleContent = new GUIContent("Select Old Version");
+            window.position = new Rect(position.x, position.y, 250, 300);
+            window.parentWindow = parent;
+            window.assetData = assetData;
+            window.editingAsset = editingAsset;
+            window.ShowPopup();
+            currentWindow = window;
+        }
+
+        public static void CloseCurrentWindow() {
+            if (currentWindow != null) {
+                currentWindow.Close();
+                currentWindow = null;
+            }
+        }
+
+        void OnGUI() {
+            if (hoverButtonStyle == null) {
+                hoverButtonStyle = new GUIStyle(EditorStyles.label);
+                hoverButtonStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f);
+                hoverButtonStyle.hover.textColor = new Color(0.4f, 0.7f, 1.0f);
+                hoverButtonStyle.active.textColor = new Color(0.3f, 0.6f, 0.9f);
+                hoverButtonStyle.padding = new RectOffset(5, 5, 2, 2);
+                hoverButtonStyle.margin = new RectOffset(0, 0, 1, 1);
+            }
+
+            var windowRect = new Rect(Vector2.zero, position.size);
+            if (Event.current.type == EventType.MouseDown && !windowRect.Contains(Event.current.mousePosition)) {
+                currentWindow = null;
+                Close();
+                return;
+            }
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
+
+            foreach (var asset in assetData.assetList) {
+                if (asset.uid != editingAsset.uid) {
+                    bool isAlreadyOldVersion = editingAsset.oldVersions != null && 
+                                             editingAsset.oldVersions.Contains(asset.uid);
+                    
+                    if (isAlreadyOldVersion) {
+                        GUI.enabled = false;
+                        GUILayout.Label(asset.assetName, hoverButtonStyle);
+                        GUI.enabled = true;
+                    } else {
+                        Rect buttonRect = GUILayoutUtility.GetRect(GUIContent.none, hoverButtonStyle, GUILayout.ExpandWidth(true));
+                        bool isHover = buttonRect.Contains(Event.current.mousePosition);
+                        
+                        if (isHover) {
+                            EditorGUI.DrawRect(buttonRect, new Color(0.4f, 0.4f, 0.4f, 0.2f));
+                        }
+
+                        if (GUI.Button(buttonRect, asset.assetName, hoverButtonStyle)) {
+                            if (editingAsset.oldVersions == null) {
+                                editingAsset.oldVersions = new List<string>();
+                            }
+                            editingAsset.oldVersions.Add(asset.uid);
+                            int index = assetData.assetList.FindIndex(a => a.uid == asset.uid);
+                            if (index != -1) {
+                                assetData.assetList[index].isLatest = false;
+                                Utility.SaveAssetData(assetData);
+                            }
                             parentWindow.Repaint();
                             Close();
                         }
@@ -273,6 +366,7 @@ public class VUPMEditorWindow : EditorWindow {
 
             using (new EditorGUILayout.HorizontalScope()) {
                 var filteredAssets = assetData.assetList.Where(asset => 
+                    asset.isLatest &&  // 最新バージョンのみ表示
                     asset.assetType == selectedAssetType &&
                     (string.IsNullOrEmpty(searchName) || asset.assetName.IndexOf(searchName, StringComparison.OrdinalIgnoreCase) >= 0) &&
                     (string.IsNullOrEmpty(searchDescription) || 
@@ -423,6 +517,7 @@ public class VUPMEditorWindow : EditorWindow {
                     Rect selectAssetButtonRect = new Rect(thumbnailSize, selectAssetButtonY, 100, 20);
                     if (!selectAssetButtonRect.Contains(localMousePos)) {
                         DependencyPopupWindow.CloseCurrentWindow();
+                        OldVersionPopupWindow.CloseCurrentWindow();
                     }
                 }
             }
@@ -430,7 +525,25 @@ public class VUPMEditorWindow : EditorWindow {
         
         if (Event.current.type == EventType.MouseDown && !detailWindowRect.Contains(Event.current.mousePosition)) {
             if (isEditMode) {
-                isEditMode = false;
+                // 古いバージョンのフラグを元に戻す
+                if (editingAsset.oldVersions != null) {
+                    foreach (string versionUid in editingAsset.oldVersions) {
+                        int versionIndex = assetData.assetList.FindIndex(a => a.uid == versionUid);
+                        if (versionIndex != -1) {
+                            assetData.assetList[versionIndex].isLatest = true;
+                        }
+                    }
+                }
+                if (selectedAsset.oldVersions != null) {
+                    foreach (string versionUid in selectedAsset.oldVersions) {
+                        int versionIndex = assetData.assetList.FindIndex(a => a.uid == versionUid);
+                        if (versionIndex != -1) {
+                            assetData.assetList[versionIndex].isLatest = false;
+                        }
+                    }
+                }
+                Utility.SaveAssetData(assetData);
+
                 editingAsset = null;
                 if (!string.IsNullOrEmpty(selectedAsset.thumbnailPath)) {
                     if (thumbnailCache.ContainsKey(rootPath + selectedAsset.thumbnailPath)) {
@@ -441,7 +554,9 @@ public class VUPMEditorWindow : EditorWindow {
                 if (index != -1) {
                     selectedAsset = assetData.assetList[index].Clone();
                 }
+                isEditMode = false;
                 DependencyPopupWindow.CloseCurrentWindow();
+                OldVersionPopupWindow.CloseCurrentWindow();
                 GUI.FocusControl(null);
             }
             showDetailWindow = false;
@@ -509,6 +624,25 @@ public class VUPMEditorWindow : EditorWindow {
             GUILayout.Label("Asset Details", Style.detailTitle);
             if (GUILayout.Button(isEditMode ? "Cancel" : "Edit Asset Info", Style.detailEditInfoButton)) {
                 if (isEditMode) {
+                    // 古いバージョンのフラグを元に戻す
+                    if (editingAsset.oldVersions != null) {
+                        foreach (string versionUid in editingAsset.oldVersions) {
+                            int versionIndex = assetData.assetList.FindIndex(a => a.uid == versionUid);
+                            if (versionIndex != -1) {
+                                assetData.assetList[versionIndex].isLatest = true;
+                            }
+                        }
+                    }
+                    if (selectedAsset.oldVersions != null) {
+                        foreach (string versionUid in selectedAsset.oldVersions) {
+                            int versionIndex = assetData.assetList.FindIndex(a => a.uid == versionUid);
+                            if (versionIndex != -1) {
+                                assetData.assetList[versionIndex].isLatest = false;
+                            }
+                        }
+                    }
+                    Utility.SaveAssetData(assetData);
+
                     editingAsset = null;
                     if (!string.IsNullOrEmpty(selectedAsset.thumbnailPath)) {
                         if (thumbnailCache.ContainsKey(rootPath + selectedAsset.thumbnailPath)) {
@@ -521,6 +655,7 @@ public class VUPMEditorWindow : EditorWindow {
                     }
                     isEditMode = false;
                     DependencyPopupWindow.CloseCurrentWindow();
+                    OldVersionPopupWindow.CloseCurrentWindow();
                     GUI.FocusControl(null);
                     Repaint();
                 } else {
@@ -533,6 +668,7 @@ public class VUPMEditorWindow : EditorWindow {
                         thumbnailPath = selectedAsset.thumbnailPath,
                         description = selectedAsset.description,
                         dependencies = selectedAsset.dependencies != null ? new List<string>(selectedAsset.dependencies) : null,
+                        oldVersions = selectedAsset.oldVersions != null ? new List<string>(selectedAsset.oldVersions) : null,
                         assetType = selectedAsset.assetType
                     };
                     editingAsset = newEditingAsset;
@@ -543,6 +679,7 @@ public class VUPMEditorWindow : EditorWindow {
                 SaveAssetChanges();
                 isEditMode = false;
                 DependencyPopupWindow.CloseCurrentWindow();
+                OldVersionPopupWindow.CloseCurrentWindow();
             }
             EditorGUILayout.EndHorizontal();
 
@@ -646,6 +783,68 @@ public class VUPMEditorWindow : EditorWindow {
                                 if (GUILayout.Button(depAsset.assetName, linkStyle)) {
                                     assetHistory.Push(selectedAsset);
                                     selectedAsset = depAsset;
+                                    isEditMode = false;
+                                    editingAsset = null;
+                                    Repaint();
+                                }
+                                EditorGUILayout.EndHorizontal();
+                            }
+                        }
+                        EditorGUILayout.EndVertical();
+                    }
+                    EditorGUILayout.Space(5);
+                }
+
+                if (isEditMode || (selectedAsset.oldVersions != null && selectedAsset.oldVersions.Count > 0)) {
+                    EditorGUILayout.LabelField("Old Versions", Style.detailContentName);
+                    if (isEditMode) {
+                        if (editingAsset.oldVersions != null && editingAsset.oldVersions.Count > 0) {
+                            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                            string versionUidToRemove = null;
+                            foreach (string versionUid in editingAsset.oldVersions) {
+                                var versionAsset = assetData.assetList.Find(a => a.uid == versionUid);
+                                if (versionAsset != null) {
+                                    EditorGUILayout.BeginHorizontal();
+                                    EditorGUILayout.LabelField(versionAsset.assetName);
+                                    if (GUILayout.Button("×", GUILayout.Width(20))) {
+                                        versionUidToRemove = versionUid;
+                                    }
+                                    EditorGUILayout.EndHorizontal();
+                                }
+                            }
+                            EditorGUILayout.EndVertical();
+
+                            if (versionUidToRemove != null) {
+                                editingAsset.oldVersions.Remove(versionUidToRemove);
+                                if (editingAsset.oldVersions.Count == 0) {
+                                    editingAsset.oldVersions = null;
+                                }
+                                int index = assetData.assetList.FindIndex(a => a.uid == versionUidToRemove);
+                                if (index != -1) {
+                                    assetData.assetList[index].isLatest = true;
+                                    Utility.SaveAssetData(assetData);
+                                }
+                            }
+                        }
+
+                        EditorGUILayout.BeginHorizontal();
+                        EditorGUILayout.LabelField("Add Old Version", GUILayout.Width(100));
+                        if (GUILayout.Button("Select Asset")) {
+                            Vector2 popupPosition = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                            OldVersionPopupWindow.ShowWindow(this, assetData, editingAsset, popupPosition);
+                        }
+                        EditorGUILayout.EndHorizontal();
+                    } else {
+                        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                        foreach (string versionUid in selectedAsset.oldVersions) {
+                            var versionAsset = assetData.assetList.Find(a => a.uid == versionUid);
+                            if (versionAsset != null) {
+                                EditorGUILayout.BeginHorizontal();
+                                var linkStyle = new GUIStyle(EditorStyles.label);
+                                linkStyle.normal.textColor = new Color(0.4f, 0.7f, 1.0f);
+                                if (GUILayout.Button(versionAsset.assetName, linkStyle)) {
+                                    assetHistory.Push(selectedAsset);
+                                    selectedAsset = versionAsset;
                                     isEditMode = false;
                                     editingAsset = null;
                                     Repaint();
@@ -858,6 +1057,7 @@ public class VUPMEditorWindow : EditorWindow {
             selectedAsset.thumbnailPath = editingAsset.thumbnailPath;
             selectedAsset.description = editingAsset.description;
             selectedAsset.dependencies = editingAsset.dependencies != null ? new List<string>(editingAsset.dependencies) : null;
+            selectedAsset.oldVersions = editingAsset.oldVersions != null ? new List<string>(editingAsset.oldVersions) : null;
             selectedAsset.assetType = editingAsset.assetType;
 
             int index = assetData.assetList.FindIndex(a => a.uid == selectedAsset.uid);

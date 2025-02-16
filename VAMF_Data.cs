@@ -25,6 +25,8 @@ public class AssetDataList {
         public string thumbnailPath;
         public string description;
         public List<string> dependencies;  // 依存アセットのUIDリスト
+        public List<string> oldVersions;   // 古いバージョンのUIDリスト
+        public bool isLatest = true;       // 最新バージョンかどうかのフラグ
         public AssetType assetType;
 
         public assetInfo Clone() {
@@ -37,6 +39,8 @@ public class AssetDataList {
                 thumbnailPath = this.thumbnailPath,
                 description = this.description,
                 dependencies = new List<string>(this.dependencies ?? new List<string>()),
+                oldVersions = new List<string>(this.oldVersions ?? new List<string>()),
+                isLatest = this.isLatest,
                 assetType = this.assetType
             };
         }
