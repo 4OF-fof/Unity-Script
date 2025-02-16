@@ -41,7 +41,7 @@ public class VUPMEditorWindow : EditorWindow {
     private Vector2 dependencyPopupScrollPosition;
     private bool showDependencyPopup = false;
     private Rect dependencyPopupRect;
-    private bool showImportDialog = true;
+    private bool showImportDialog = false;
 
     private class DependencyPopupWindow : EditorWindow {
         private VUPMEditorWindow parentWindow;
@@ -682,9 +682,10 @@ public class VUPMEditorWindow : EditorWindow {
 
             if (!isEditMode) {
                 using (new EditorGUILayout.HorizontalScope()) {
-                    GUILayout.FlexibleSpace();
-                    showImportDialog = EditorGUILayout.ToggleLeft("Show import dialog", showImportDialog, GUILayout.Width(150));
-                    GUILayout.FlexibleSpace();
+                    var toggleStyle = new GUIStyle(GUI.skin.toggle);
+                    toggleStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f);
+                    toggleStyle.onNormal.textColor = new Color(0.8f, 0.8f, 0.8f);
+                    showImportDialog = GUILayout.Toggle(showImportDialog, "Show import dialog", toggleStyle);
                 }
                 EditorGUILayout.Space(5);
 
