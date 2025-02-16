@@ -23,9 +23,14 @@ public class VUPMEditorWindow : EditorWindow {
     private AssetDataList.assetInfo selectedAsset;
     private Stack<AssetDataList.assetInfo> assetHistory = new Stack<AssetDataList.assetInfo>();
     private bool showDetailWindow = false;
-    private Vector2 mainScrollPosition; // アセット一覧用のスクロール位置
-    private Vector2 detailScrollPosition; // 詳細ウィンドウ用のスクロール位置
-    private Vector2 storedMainScrollPosition; // 詳細ウィンドウ表示時のメインスクロール位置を保存
+    private bool showFilterWindow = false;
+    private string searchName = "";
+    private string searchDescription = "";
+    private string tempSearchName = "";
+    private string tempSearchDescription = "";
+    private Vector2 mainScrollPosition;
+    private Vector2 detailScrollPosition;
+    private Vector2 storedMainScrollPosition;
     private Vector2 descriptionScrollPosition;
     private Dictionary<string, Texture2D> thumbnailCache = new Dictionary<string, Texture2D>();
     private bool isInitialized = false;
@@ -76,7 +81,6 @@ public class VUPMEditorWindow : EditorWindow {
                 hoverButtonStyle.margin = new RectOffset(0, 0, 1, 1);
             }
 
-            // ウィンドウ外クリックの判定
             var windowRect = new Rect(Vector2.zero, position.size);
             if (Event.current.type == EventType.MouseDown && !windowRect.Contains(Event.current.mousePosition)) {
                 currentWindow = null;
@@ -151,7 +155,6 @@ public class VUPMEditorWindow : EditorWindow {
     }
 
     private void CleanupMissingAssets() {
-        // sourcePathのファイルが存在しないアセットを削除
         var deletedAssets = new List<AssetDataList.assetInfo>();
         foreach (var asset in assetData.assetList) {
             string sourcePath = Path.GetFullPath(rootPath + asset.sourcePath);
@@ -162,10 +165,8 @@ public class VUPMEditorWindow : EditorWindow {
 
         if (deletedAssets.Count > 0) {
             int deletedFileCount = 0;
-            // まずアセットデータから削除
             foreach (var asset in deletedAssets) {
                 if (assetData.assetList.Remove(asset)) {
-                    // .unzip以下のファイルが存在する場合は削除
                     string filePath = Path.GetFullPath(rootPath + asset.filePath);
                     if (filePath.Contains(".unzip") && File.Exists(filePath)) {
                         try {
@@ -179,7 +180,6 @@ public class VUPMEditorWindow : EditorWindow {
                 }
             }
 
-            // 変更を保存
             Utility.SaveAssetData(assetData);
             Debug.Log($"Removed {deletedAssets.Count} assets from data. Deleted {deletedFileCount} .unzip files.");
         }
@@ -227,10 +227,8 @@ public class VUPMEditorWindow : EditorWindow {
         GUI.color = oldColor;
 
         GUILayout.BeginVertical();
-        // AssetTypeタブの表示（2行）
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         
-        // 1行目: Unregistered, Avatar, Hair, Cloth
         EditorGUILayout.BeginHorizontal();
         AssetType[] firstRow = { AssetType.Unregistered, AssetType.Avatar, AssetType.Hair, AssetType.Cloth };
         foreach (AssetType type in firstRow) {
@@ -243,7 +241,6 @@ public class VUPMEditorWindow : EditorWindow {
         }
         EditorGUILayout.EndHorizontal();
 
-        // 2行目: Accessory, Gimmick, Script, Other
         EditorGUILayout.BeginHorizontal();
         AssetType[] secondRow = { AssetType.Accessory, AssetType.Gimmick, AssetType.Script, AssetType.Other };
         foreach (AssetType type in secondRow) {
@@ -263,13 +260,23 @@ public class VUPMEditorWindow : EditorWindow {
             if (!showDetailWindow) {
                 mainScrollPosition = scrollView.scrollPosition;
             } else if (Event.current.type == EventType.Layout) {
-                // 詳細ウィンドウ表示時は現在のスクロール位置を保存
                 storedMainScrollPosition = mainScrollPosition;
             }
             EditorGUILayout.Space(5);
             int assetCount = 0;
+
+            // 検索ウィンドウが開いている場合はアセットボタンを無効化
+            if (showFilterWindow) {
+                GUI.enabled = false;
+            }
+
             using (new EditorGUILayout.HorizontalScope()) {
-                var filteredAssets = assetData.assetList.Where(asset => asset.assetType == selectedAssetType);
+                var filteredAssets = assetData.assetList.Where(asset => 
+                    asset.assetType == selectedAssetType &&
+                    (string.IsNullOrEmpty(searchName) || asset.assetName.IndexOf(searchName, StringComparison.OrdinalIgnoreCase) >= 0) &&
+                    (string.IsNullOrEmpty(searchDescription) || 
+                     (asset.description != null && asset.description.IndexOf(searchDescription, StringComparison.OrdinalIgnoreCase) >= 0))
+                );
                 foreach (var asset in filteredAssets) {
                     if (assetCount > 0 && assetCount % 4 == 0) {
                         GUILayout.EndHorizontal();
@@ -295,11 +302,100 @@ public class VUPMEditorWindow : EditorWindow {
                     assetCount++;
                 }
             }
+
+            // GUIの有効状態を元に戻す
+            if (showFilterWindow) {
+                GUI.enabled = true;
+            }
         }
 
         if (showDetailWindow) {
             GUI.enabled = true;
             DetailWindow();
+        }
+
+        BeginWindows();
+        var searchButtonRect = new Rect(position.width - 60, position.height - 60, 40, 40);
+        var searchIconContent = EditorGUIUtility.IconContent("d_Search Icon");
+        searchIconContent.tooltip = "Search & Filter";
+
+        // フィルターが適用されているかどうかをチェック
+        bool isFilterActive = !string.IsNullOrEmpty(searchName) || !string.IsNullOrEmpty(searchDescription);
+
+        // 検索ボタンのクリック判定を最優先で処理
+        if (Event.current.type == EventType.MouseDown && searchButtonRect.Contains(Event.current.mousePosition)) {
+            showFilterWindow = !showFilterWindow;
+            if (showFilterWindow) {
+                tempSearchName = searchName;
+                tempSearchDescription = searchDescription;
+            }
+            Event.current.Use();
+            Repaint();
+            EndWindows();
+            return;
+        }
+
+        // 正方形の背景を描画
+        var bgStyle = new GUIStyle();
+        bgStyle.normal.background = EditorGUIUtility.whiteTexture;
+
+        // 通常時とホバー時の背景色を設定
+        Color normalColor = new Color(0.2f, 0.2f, 0.2f, 0.9f);
+        Color hoverColor = new Color(0.3f, 0.3f, 0.3f, 0.9f);
+        Color activeColor = new Color(0.15f, 0.15f, 0.15f, 0.9f);
+
+        // 輪郭線の色を設定
+        Color borderColor = new Color(0.4f, 0.4f, 0.4f, 1.0f);
+        if (searchButtonRect.Contains(Event.current.mousePosition)) {
+            borderColor = new Color(0.6f, 0.6f, 0.6f, 1.0f);
+        }
+
+        // マウスの状態に応じて背景色を変更
+        if (Event.current.type == EventType.MouseDown && searchButtonRect.Contains(Event.current.mousePosition)) {
+            GUI.backgroundColor = activeColor;
+        } else if (searchButtonRect.Contains(Event.current.mousePosition)) {
+            GUI.backgroundColor = hoverColor;
+        } else {
+            GUI.backgroundColor = normalColor;
+        }
+        
+        // 背景を描画
+        GUI.Box(searchButtonRect, "", bgStyle);
+        GUI.backgroundColor = Color.white;
+
+        // 輪郭線を描画
+        var borderRects = new Rect[] {
+            new Rect(searchButtonRect.x, searchButtonRect.y, searchButtonRect.width, 1),                    // 上
+            new Rect(searchButtonRect.x, searchButtonRect.y + searchButtonRect.height - 1, searchButtonRect.width, 1),  // 下
+            new Rect(searchButtonRect.x, searchButtonRect.y, 1, searchButtonRect.height),                    // 左
+            new Rect(searchButtonRect.x + searchButtonRect.width - 1, searchButtonRect.y, 1, searchButtonRect.height)   // 右
+        };
+
+        foreach (var borderRect in borderRects) {
+            EditorGUI.DrawRect(borderRect, borderColor);
+        }
+
+        // カスタムボタンスタイル
+        var roundButtonStyle = new GUIStyle(EditorStyles.iconButton);
+        roundButtonStyle.normal.background = null;
+        roundButtonStyle.hover.background = null;
+        roundButtonStyle.active.background = null;
+        roundButtonStyle.fontSize = 20;
+        roundButtonStyle.fixedWidth = 40;
+        roundButtonStyle.fixedHeight = 40;
+        roundButtonStyle.alignment = TextAnchor.MiddleCenter;
+
+        // フィルターが適用されている場合はアイコンの色を変更
+        Color originalColor = GUI.color;
+        if (isFilterActive) {
+            GUI.color = new Color(0.3f, 0.8f, 0.3f, 1.0f);
+        }
+        GUI.Button(searchButtonRect, searchIconContent, roundButtonStyle);
+        GUI.color = originalColor;
+        EndWindows();
+
+        if (showFilterWindow) {
+            FilterWindow();
         }
     }
 
@@ -315,13 +411,11 @@ public class VUPMEditorWindow : EditorWindow {
         
         Rect detailWindowRect = new Rect(x, y, windowWidth, windowHeight);
         
-        // 詳細ウィンドウ内のクリックを検出
         if (Event.current.type == EventType.MouseDown) {
             if (detailWindowRect.Contains(Event.current.mousePosition)) {
-                // Select Assetボタンの領域を除外
                 if (isEditMode && editingAsset != null) {
                     Vector2 localMousePos = Event.current.mousePosition - new Vector2(x + 10, y + 10);
-                    float selectAssetButtonY = 300; // おおよその位置
+                    float selectAssetButtonY = 300;
                     Rect selectAssetButtonRect = new Rect(thumbnailSize, selectAssetButtonY, 100, 20);
                     if (!selectAssetButtonRect.Contains(localMousePos)) {
                         DependencyPopupWindow.CloseCurrentWindow();
@@ -332,10 +426,19 @@ public class VUPMEditorWindow : EditorWindow {
         
         if (Event.current.type == EventType.MouseDown && !detailWindowRect.Contains(Event.current.mousePosition)) {
             if (isEditMode) {
-                // 編集モードの場合は、編集をキャンセル
                 isEditMode = false;
                 editingAsset = null;
+                if (!string.IsNullOrEmpty(selectedAsset.thumbnailPath)) {
+                    if (thumbnailCache.ContainsKey(rootPath + selectedAsset.thumbnailPath)) {
+                        thumbnailCache.Remove(rootPath + selectedAsset.thumbnailPath);
+                    }
+                }
+                int index = assetData.assetList.FindIndex(a => a.uid == selectedAsset.uid);
+                if (index != -1) {
+                    selectedAsset = assetData.assetList[index].Clone();
+                }
                 DependencyPopupWindow.CloseCurrentWindow();
+                GUI.FocusControl(null);
             }
             showDetailWindow = false;
             assetHistory.Clear();
@@ -351,7 +454,6 @@ public class VUPMEditorWindow : EditorWindow {
 
         EditorGUILayout.BeginVertical(GUILayout.Width(thumbnailSize));
         if (selectedAsset != null) {
-            // Backボタンをここに移動
             if (!isEditMode && assetHistory.Count > 0) {
                 if (GUILayout.Button("← Back", GUILayout.Width(80), GUILayout.Height(25))) {
                     selectedAsset = assetHistory.Pop();
@@ -375,13 +477,11 @@ public class VUPMEditorWindow : EditorWindow {
             }
             GUILayout.Box(thumbnail, GUILayout.Width(thumbnailSize), GUILayout.Height(thumbnailSize));
 
-            // Add Get thumbnail from Booth button
             if (GUILayout.Button("Get thumbnail from Booth")) {
                 var targetAsset = isEditMode ? editingAsset : selectedAsset;
                 if (!string.IsNullOrEmpty(targetAsset.url) && targetAsset.url.Contains("booth.pm")) {
                     EditorApplication.delayCall += async () => {
                         var tempAsset = targetAsset.Clone();
-                        // 編集モード中は一時的な変更として扱う
                         if (isEditMode) {
                             await Utility.GetBoothThumbnail(tempAsset, assetData, rootPath, thumbnailCache, false);
                             editingAsset = tempAsset;
@@ -405,15 +505,12 @@ public class VUPMEditorWindow : EditorWindow {
             GUILayout.Label("Asset Details", Style.detailTitle);
             if (GUILayout.Button(isEditMode ? "Cancel" : "Edit Asset Info", Style.detailEditInfoButton)) {
                 if (isEditMode) {
-                    // キャンセル時の処理
                     editingAsset = null;
-                    // サムネイルキャッシュをクリアして再読み込み
                     if (!string.IsNullOrEmpty(selectedAsset.thumbnailPath)) {
                         if (thumbnailCache.ContainsKey(rootPath + selectedAsset.thumbnailPath)) {
                             thumbnailCache.Remove(rootPath + selectedAsset.thumbnailPath);
                         }
                     }
-                    // アセットリストから最新の状態を取得して更新
                     int index = assetData.assetList.FindIndex(a => a.uid == selectedAsset.uid);
                     if (index != -1) {
                         selectedAsset = assetData.assetList[index].Clone();
@@ -423,12 +520,18 @@ public class VUPMEditorWindow : EditorWindow {
                     GUI.FocusControl(null);
                     Repaint();
                 } else {
-                    // 編集モードに入る時の処理
-                    int index = assetData.assetList.FindIndex(a => a.uid == selectedAsset.uid);
-                    if (index != -1) {
-                        selectedAsset = assetData.assetList[index].Clone();
-                    }
-                    editingAsset = selectedAsset.Clone();
+                    var newEditingAsset = new AssetDataList.assetInfo {
+                        uid = selectedAsset.uid,
+                        assetName = selectedAsset.assetName,
+                        sourcePath = selectedAsset.sourcePath,
+                        filePath = selectedAsset.filePath,
+                        url = selectedAsset.url,
+                        thumbnailPath = selectedAsset.thumbnailPath,
+                        description = selectedAsset.description,
+                        dependencies = selectedAsset.dependencies != null ? new List<string>(selectedAsset.dependencies) : null,
+                        assetType = selectedAsset.assetType
+                    };
+                    editingAsset = newEditingAsset;
                     isEditMode = true;
                 }
             }
@@ -439,7 +542,6 @@ public class VUPMEditorWindow : EditorWindow {
             }
             EditorGUILayout.EndHorizontal();
 
-            // プロパティ表示部分をスクロール可能な領域に
             using (var scrollView = new EditorGUILayout.ScrollViewScope(detailScrollPosition, GUILayout.Height(windowHeight - 140))) {
                 detailScrollPosition = scrollView.scrollPosition;
                 
@@ -577,7 +679,6 @@ public class VUPMEditorWindow : EditorWindow {
 
             EditorGUILayout.Space(15);
 
-            // インポートボタンの追加（編集モード以外の時のみ表示）
             if (!isEditMode) {
                 GUI.backgroundColor = new Color(0.3f, 0.8f, 0.3f);
                 if (GUILayout.Button("Import UnityPackage", GUILayout.Height(30))) {
@@ -598,24 +699,85 @@ public class VUPMEditorWindow : EditorWindow {
 
     private void SaveAssetChanges() {
         if (editingAsset != null && selectedAsset != null) {
-            // 編集中のアセット情報を選択中のアセットに反映
             selectedAsset.assetName = editingAsset.assetName;
             selectedAsset.sourcePath = editingAsset.sourcePath;
             selectedAsset.url = editingAsset.url;
             selectedAsset.thumbnailPath = editingAsset.thumbnailPath;
             selectedAsset.description = editingAsset.description;
-            selectedAsset.dependencies = editingAsset.dependencies;
+            selectedAsset.dependencies = editingAsset.dependencies != null ? new List<string>(editingAsset.dependencies) : null;
             selectedAsset.assetType = editingAsset.assetType;
 
-            // アセットリストを更新
             int index = assetData.assetList.FindIndex(a => a.uid == selectedAsset.uid);
             if (index != -1) {
-                assetData.assetList[index] = selectedAsset;
+                assetData.assetList[index] = selectedAsset.Clone();
             }
 
-            // JSONファイルに保存
             Utility.SaveAssetData(assetData);
             editingAsset = null;
         }
+    }
+
+    private void FilterWindow() {
+        float windowWidth = 250;
+        float windowHeight = 200;
+        float x = position.width - windowWidth - 70;
+        float y = position.height - windowHeight - 70;
+
+        var backgroundRect = new Rect(x, y, windowWidth, windowHeight);
+        EditorGUI.DrawRect(backgroundRect, new Color(0.2f, 0.2f, 0.2f, 0.95f));
+
+        // Enterキーの検出と処理
+        if (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Return) {
+            searchName = tempSearchName;
+            searchDescription = tempSearchDescription;
+            showFilterWindow = false;
+            GUI.FocusControl(null);
+            Event.current.Use();
+            Repaint();
+            return;
+        }
+
+        if (Event.current.type == EventType.MouseDown && !backgroundRect.Contains(Event.current.mousePosition)) {
+            showFilterWindow = false;
+            GUI.changed = true;
+            Event.current.Use();
+            return;
+        }
+
+        GUILayout.BeginArea(backgroundRect);
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(windowWidth), GUILayout.Height(windowHeight));
+
+        EditorGUILayout.Space(10);
+        EditorGUILayout.LabelField("Search & Filter", EditorStyles.boldLabel);
+        EditorGUILayout.Space(10);
+
+        EditorGUILayout.LabelField("Name", EditorStyles.boldLabel);
+        tempSearchName = EditorGUILayout.TextField(tempSearchName, GUILayout.ExpandWidth(true));
+
+        EditorGUILayout.Space(10);
+        EditorGUILayout.LabelField("Description", EditorStyles.boldLabel);
+        tempSearchDescription = EditorGUILayout.TextField(tempSearchDescription, GUILayout.ExpandWidth(true));
+
+        EditorGUILayout.Space(15);
+        using (new EditorGUILayout.HorizontalScope()) {
+            if (GUILayout.Button("Apply", GUILayout.Height(25))) {
+                searchName = tempSearchName;
+                searchDescription = tempSearchDescription;
+                showFilterWindow = false;
+                Repaint();
+            }
+
+            if (GUILayout.Button("Reset", GUILayout.Height(25))) {
+                searchName = "";
+                searchDescription = "";
+                tempSearchName = "";
+                tempSearchDescription = "";
+                showFilterWindow = false;
+                Repaint();
+            }
+        }
+
+        EditorGUILayout.EndVertical();
+        GUILayout.EndArea();
     }
 }
