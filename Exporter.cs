@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -66,6 +66,18 @@ namespace _4OF.devTools {
                                 if (!IsTagOnLatestMasterCommit(selectedPath, latestTag)) {
                                     EditorUtility.DisplayDialog("警告", 
                                         $"最新のtag '{latestTag}' はmasterブランチの先頭コミットに紐づいていません。\nエクスポートを続ける前に確認してください。", "OK");
+                                }
+                                
+                                // package.jsonのversionとtagを比較
+                                var packageJsonPath = Path.Combine(selectedPath, "package.json");
+                                if (File.Exists(packageJsonPath)) {
+                                    var packageVersion = GetPackageJsonVersion(packageJsonPath);
+                                    var tagVersion = latestTag.TrimStart('v', 'V');
+                                    
+                                    if (!string.IsNullOrEmpty(packageVersion) && packageVersion != tagVersion) {
+                                        EditorUtility.DisplayDialog("警告", 
+                                            $"package.jsonのversion '{packageVersion}' とtag '{latestTag}' が一致しません。\nエクスポートを続ける前に確認してください。", "OK");
+                                    }
                                 }
                             }
                         }
@@ -485,6 +497,25 @@ namespace _4OF.devTools {
             }
             catch (Exception e) {
                 Debug.LogWarning($"Failed to get commit hash for {reference}: {e.Message}");
+            }
+
+            return "";
+        }
+
+        private string GetPackageJsonVersion(string packageJsonPath) {
+            try {
+                if (!File.Exists(packageJsonPath)) return "";
+                
+                var jsonContent = File.ReadAllText(packageJsonPath);
+                
+                // 簡易的なJSONパース（"version": "x.x.x" の形式を探す）
+                var match = Regex.Match(jsonContent, @"""version""\s*:\s*""([^""]+)""");
+                if (match.Success && match.Groups.Count > 1) {
+                    return match.Groups[1].Value;
+                }
+            }
+            catch (Exception e) {
+                Debug.LogWarning($"Failed to read package.json version: {e.Message}");
             }
 
             return "";
