@@ -185,7 +185,7 @@ namespace _4OF.devTools {
                     return;
                 }
 
-                AssetDatabase.ExportPackage(assetPaths, outputPath, ExportPackageOptions.Recurse);
+                AssetDatabase.ExportPackage(assetPaths, outputPath, ExportPackageOptions.Default);
                 EditorUtility.DisplayDialog("成功",
                     $"UnityPackageをエクスポートしました:\n{outputPath}\n\nエクスポートされたファイル数: {assetPaths.Length}", "OK");
             }
@@ -217,7 +217,7 @@ namespace _4OF.devTools {
             var targetName = Path.GetFileName(_exportPath.TrimEnd('/', '\\'));
             var exportFolderName = $"exporter_{targetName}_{_version}";
             var exportFolder = Path.Combine(_outputDirectory, exportFolderName);
-            var targetPath = Path.Combine(exportFolder, targetName);
+            var targetPath = Path.Combine(exportFolder, targetName + "_" + _version);
 
             Directory.CreateDirectory(exportFolder);
 
@@ -256,7 +256,7 @@ namespace _4OF.devTools {
             var patterns = new List<string> {
                 // デフォルトで除外するパターン
                 ".git",
-                ".gitignore"
+                ".gitignore",
             };
 
             // ユーザー指定の無視パターン
@@ -292,9 +292,28 @@ namespace _4OF.devTools {
             pattern = pattern.Replace("\\", "/");
             path = path.Replace("\\", "/");
 
-            // ディレクトリパターン
-            if (pattern.EndsWith("/"))
-                return path.Contains("/" + pattern.TrimEnd('/') + "/") || path.EndsWith("/" + pattern.TrimEnd('/'));
+            // ディレクトリパターン（/で終わる）
+            if (pattern.EndsWith("/")) {
+                var dirPattern = pattern.TrimEnd('/');
+                
+                // ワイルドカードを含むディレクトリパターン
+                if (dirPattern.Contains("*")) {
+                    var regexPattern = Regex.Escape(dirPattern)
+                        .Replace("\\*\\*/", ".*/")
+                        .Replace("\\*/", "[^/]*/")
+                        .Replace("\\*", "[^/]*")
+                        .Replace("\\?", ".");
+                    
+                    // ディレクトリ自体とその配下のファイル/ディレクトリにマッチ
+                    var regex = new Regex("(^|/)" + regexPattern + "(/|$)");
+                    return regex.IsMatch(path);
+                }
+                
+                // 通常のディレクトリパターン
+                return path.Contains("/" + dirPattern + "/") || 
+                       path.EndsWith("/" + dirPattern) ||
+                       path == dirPattern;
+            }
 
             // ワイルドカードパターン
             if (pattern.Contains("*")) {
